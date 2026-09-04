@@ -1,0 +1,37 @@
+# Local application data (SQLite databases, PDFs, and user content)
+/backend/data/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Frontend / Vite
+/frontend/node_modules/
+/frontend/dist/
+*.local
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and runtime files
+*.log
+*.pid
+nohup.out
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db

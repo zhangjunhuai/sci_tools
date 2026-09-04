@@ -1,0 +1,130 @@
+import sqlite3
+import threading
+import json
+from .config import DB_PATH
+
+_local = threading.local()
+
+
+def get_db() -> sqlite3.Connection:
+    conn = getattr(_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(DB_PATH, timeout=30)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        _local.conn = conn
+    return conn
+
+
+def init_db():
+    conn = get_db()
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS papers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            authors TEXT NOT NULL DEFAULT '[]',      -- JSON array
+            year INTEGER,
+            venue TEXT,
+            doi TEXT,
+            arxiv_id TEXT,
+            abstract TEXT DEFAULT '',
+            tags TEXT NOT NULL DEFAULT '[]',          -- JSON array
+            projects TEXT NOT NULL DEFAULT '[]',      -- JSON array of project names
+            status TEXT NOT NULL DEFAULT 'unread',    -- unread | reading | read
+            starred INTEGER NOT NULL DEFAULT 0,
+            notes TEXT NOT NULL DEFAULT '',
+            ai_summary TEXT,
+            pdf_path TEXT,                            -- relative to PDF_DIR
+            pdf_text TEXT,                            -- extracted plain text
+            embedding BLOB,                           -- float32 numpy array
+            source TEXT DEFAULT 'manual',             -- manual | zotero | arxiv_feed
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS annotations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+            page INTEGER NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'highlight',   -- highlight | note
+            color TEXT NOT NULL DEFAULT 'yellow',
+            content TEXT NOT NULL DEFAULT '',          -- selected text
+            comment TEXT NOT NULL DEFAULT '',          -- user comment
+            rects TEXT NOT NULL DEFAULT '[]',          -- JSON array of {x,y,w,h} in page coords
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,          -- ingest | import_zotero | ai_process ...
+            payload TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'pending',  -- pending | running | done | error
+            message TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS feed_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            arxiv_id TEXT UNIQUE,
+            title TEXT NOT NULL,
+            authors TEXT NOT NULL DEFAULT '[]',
+            abstract TEXT DEFAULT '',
+            primary_category TEXT,
+            published TEXT,
+            pdf_url TEXT,
+            relevance REAL,              -- AI score 0-10
+            relevance_reason TEXT,
+            dismissed INTEGER NOT NULL DEFAULT 0,
+            added_paper_id INTEGER,       -- set when user adds it to library
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_papers_fts ON papers(title);
+        CREATE INDEX IF NOT EXISTS idx_annotations_paper ON annotations(paper_id);
+        CREATE INDEX IF NOT EXISTS idx_feed_created ON feed_items(created_at DESC);
+        """
+    )
+    # trigram tokenizer: 支持中文子串检索（unicode61 对 CJK 不友好）
+    conn.execute(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5("
+        "title, abstract, pdf_text, tags, content='papers', content_rowid='id', "
+        "tokenize='trigram')"
+    )
+    # 外部内容表需要触发器与 papers 保持同步
+    conn.executescript(
+        """
+        CREATE TRIGGER IF NOT EXISTS papers_fts_ai AFTER INSERT ON papers BEGIN
+            INSERT INTO papers_fts(rowid, title, abstract, pdf_text, tags)
+            VALUES (new.id, new.title, new.abstract, new.pdf_text, new.tags);
+        END;
+        CREATE TRIGGER IF NOT EXISTS papers_fts_ad AFTER DELETE ON papers BEGIN
+            INSERT INTO papers_fts(papers_fts, rowid, title, abstract, pdf_text, tags)
+            VALUES ('delete', old.id, old.title, old.abstract, old.pdf_text, old.tags);
+        END;
+        CREATE TRIGGER IF NOT EXISTS papers_fts_au AFTER UPDATE ON papers BEGIN
+            INSERT INTO papers_fts(papers_fts, rowid, title, abstract, pdf_text, tags)
+            VALUES ('delete', old.id, old.title, old.abstract, old.pdf_text, old.tags);
+            INSERT INTO papers_fts(rowid, title, abstract, pdf_text, tags)
+            VALUES (new.id, new.title, new.abstract, new.pdf_text, new.tags);
+        END;
+        """
+    )
+    conn.commit()
+
+
+def row_to_dict(row) -> dict:
+    d = dict(row)
+    for key in ("authors", "tags", "projects"):
+        if key in d and isinstance(d[key], str):
+            try:
+                d[key] = json.loads(d[key])
+            except (json.JSONDecodeError, TypeError):
+                d[key] = []
+    return d
