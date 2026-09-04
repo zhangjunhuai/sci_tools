@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, displayTitle } from '../api'
 import Tip from '../components/Tip'
+import CompareModal from '../components/CompareModal'
 
 const STATUS_LABEL = { unread: '未读', reading: '在读', read: '已读' }
 
@@ -20,6 +21,7 @@ export default function Library() {
   const [pasteId, setPasteId] = useState('')
   const [addingId, setAddingId] = useState(false)
   const [checked, setChecked] = useState(new Set())
+  const [compareIds, setCompareIds] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const fileInput = useRef(null)
   const zoteroInput = useRef(null)
@@ -266,12 +268,17 @@ export default function Library() {
       }}>
         <strong style={{ color: checked.size > 0 ? undefined : 'var(--text2)' }}>
           {checked.size > 0 ? `已选 ${checked.size} 篇` : '批量操作'}
-          <Tip text="勾选文献前的复选框后，可批量导出 BibTeX 或批量删除；「全选/取消本页」作用于当前列表。" />
+          <Tip text="勾选文献前的复选框后，可批量导出 BibTeX、AI 跨文献对比（2-8 篇，生成方法/数据集/核心结论/局限对比表）或批量删除；「全选/取消本页」作用于当前列表。" />
         </strong>
         <button className="btn sm" onClick={selectPage} disabled={!papers || papers.items.length === 0}>
           全选/取消本页
         </button>
         <button className="btn sm" onClick={exportBibtex} disabled={checked.size === 0}>导出 BibTeX</button>
+        <button className="btn sm" disabled={checked.size < 2 || checked.size > 8}
+          onClick={() => setCompareIds([...checked])}
+          title={checked.size < 2 ? '勾选至少 2 篇' : checked.size > 8 ? '最多同时对比 8 篇' : ''}>
+          ⚖ AI 对比{checked.size >= 2 && checked.size <= 8 ? `（${checked.size} 篇）` : ''}
+        </button>
         <button className="btn sm danger" disabled={checked.size === 0 || deleting} onClick={batchDelete}>
           {deleting ? '删除中…' : '🗑 批量删除'}
         </button>
@@ -294,6 +301,8 @@ export default function Library() {
           ))}
         </div>
       )}
+
+      {compareIds && <CompareModal ids={compareIds} onClose={() => setCompareIds(null)} />}
     </div>
   )
 }

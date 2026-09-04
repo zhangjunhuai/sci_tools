@@ -177,3 +177,23 @@ a { color: var(--accent); }
   padding: 8px 11px; border-radius: 6px; font-size: 12.5px; line-height: 1.55;
   box-shadow: 0 6px 20px rgba(0,0,0,0.25); text-align: left; pointer-events: none;
 }
+
+/* AI 跨文献对比 */
+.compare-modal { width: 1100px; }
+.cmp-table-wrap { overflow: auto; max-height: 55vh; border: 1px solid var(--border); border-radius: 8px; }
+.cmp-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.cmp-table th, .cmp-table td {
+  border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
+  padding: 10px 12px; text-align: left; vertical-align: top; line-height: 1.6;
+}
+.cmp-table thead th { position: sticky; top: 0; background: var(--accent-weak); z-index: 1; white-space: nowrap; }
+.cmp-table tbody th[scope="row"] {
+  background: var(--panel); font-weight: 600; min-width: 160px; max-width: 220px;
+}
+.cmp-table td { min-width: 180px; max-width: 240px; }
+.cmp-table tbody tr:last-child th, .cmp-table tbody tr:last-child td { border-bottom: none; }
+.cmp-overall {
+  margin-top: 14px; padding: 10px 14px; border-radius: 8px;
+  background: var(--accent-weak); font-size: 13.5px; line-height: 1.7;
+}
+.cmp-overall p { margin: 4px 0 0; }
