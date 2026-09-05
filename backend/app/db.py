@@ -45,6 +45,24 @@ def init_db():
             updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         );
 
+        CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS project_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            item_type TEXT NOT NULL DEFAULT 'note',   -- note | result
+            title TEXT NOT NULL DEFAULT '',
+            content TEXT NOT NULL DEFAULT '',          -- Markdown 正文
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_items ON project_items(project_id);
+
         CREATE TABLE IF NOT EXISTS annotations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             paper_id INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,

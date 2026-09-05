@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 
 from .db import init_db
 from . import jobs as J
-from .routers import papers, ai, misc, addcite
+from .routers import papers, ai, misc, addcite, projects
 
 FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 
@@ -25,6 +25,7 @@ app.include_router(addcite.router)
 app.include_router(papers.router)
 app.include_router(ai.router)
 app.include_router(misc.router)
+app.include_router(projects.router)
 
 
 @app.on_event("startup")

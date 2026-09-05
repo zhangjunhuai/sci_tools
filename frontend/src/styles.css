@@ -235,3 +235,8 @@ a { color: var(--accent); }
   border-radius: 4px; padding: 1px 8px; font-size: 12px; font-weight: 500; cursor: help;
 }
 .jbadge-warn { background: #fef2f2; color: #b91c1c; border-color: #fecaca; font-weight: 600; }
+
+/* 项目页 */
+.proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.proj-card { cursor: pointer; transition: box-shadow 0.15s; }
+.proj-card:hover { box-shadow: 0 2px 10px rgba(30, 40, 60, 0.1); }
