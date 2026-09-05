@@ -4,6 +4,7 @@ import { api, displayTitle } from '../api'
 import PdfViewer from '../components/PdfViewer'
 import AiPanel from '../components/AiPanel'
 import Tip from '../components/Tip'
+import JournalBadge from '../components/JournalBadge'
 
 const STATUS_LABEL = { unread: '未读', reading: '在读', read: '已读' }
 
@@ -86,6 +87,9 @@ export default function PaperDetail() {
             {paper.year ? ` · ${paper.year}` : ''}{paper.venue ? ` · ${paper.venue}` : ''}
             {paper.doi ? ` · DOI: ${paper.doi}` : ''}
             {paper.arxiv_id ? ` · arXiv:${paper.arxiv_id}` : ''}
+          </div>
+          <div style={{ marginTop: 6 }}>
+            <JournalBadge info={paper.journal_info} />
           </div>
         </div>
         <div className="row">

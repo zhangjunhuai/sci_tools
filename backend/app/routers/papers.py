@@ -14,6 +14,7 @@ from ..db import get_db
 from .. import jobs as J
 from .. import ai_client, metadata
 from .. import settings as S
+from .. import journalinfo
 
 router = APIRouter(prefix="/api/papers", tags=["papers"])
 
@@ -42,6 +43,7 @@ def _paper_out(row) -> dict:
     p.pop("pdf_text", None)   # 列表接口不带全文
     p.pop("embedding", None)
     p["has_pdf"] = bool(p.get("pdf_path"))
+    p["journal_info"] = journalinfo.enrich(p)["journal_info"]
     return p
 
 
@@ -80,8 +82,9 @@ def list_papers(
             where.append(f"id IN ({','.join('?' * len(rows))})")
             params.extend(rows)
     if status:
-        where.append("status=?")
-        params.append(status)
+        vals = [v for v in status.split(",") if v]
+        where.append(f"status IN ({','.join('?' * len(vals))})")
+        params.extend(vals)
     if starred is not None:
         where.append("starred=?")
         params.append(1 if starred else 0)
@@ -89,11 +92,13 @@ def list_papers(
         where.append("year=?")
         params.append(year)
     if tag:
-        where.append("tags LIKE ?")
-        params.append(f'%"{tag}"%')
+        vals = [v for v in tag.split(",") if v]
+        where.append("(" + " OR ".join(["tags LIKE ?"] * len(vals)) + ")")
+        params.extend(f'%"{v}"%' for v in vals)
     if project:
-        where.append("projects LIKE ?")
-        params.append(f'%"{project}"%')
+        vals = [v for v in project.split(",") if v]
+        where.append("(" + " OR ".join(["projects LIKE ?"] * len(vals)) + ")")
+        params.extend(f'%"{v}"%' for v in vals)
 
     order = {
         "created_desc": "created_at DESC, id DESC",
@@ -217,6 +222,7 @@ def get_paper(paper_id: int):
     p = DB.row_to_dict(row)
     p.pop("embedding", None)
     p["has_pdf"] = bool(p.get("pdf_path"))
+    p["journal_info"] = journalinfo.enrich(p)["journal_info"]
     # 去重：是否有其他论文与本文同 DOI/arXiv
     p["duplicate_ids"] = [
         r["id"]

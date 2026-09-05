@@ -197,3 +197,40 @@ a { color: var(--accent); }
   background: var(--accent-weak); font-size: 13.5px; line-height: 1.7;
 }
 .cmp-overall p { margin: 4px 0 0; }
+
+/* 文献库：左侧筛选 + 右侧列表 */
+.library-grid { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 20px; align-items: start; }
+.filter-side {
+  position: sticky; top: 12px; max-height: calc(100vh - 30px); overflow: auto;
+  display: flex; flex-direction: column; gap: 18px; padding: 4px 4px 20px 0;
+}
+.fgroup-title {
+  font-size: 13.5px; font-weight: 600; color: var(--text);
+  margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+.fopt { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13.5px; cursor: pointer; }
+.fopt input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+.fopt-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fopt:hover .fopt-label { color: var(--accent); }
+.fopt .cnt { color: var(--text2); font-size: 12.5px; white-space: nowrap; }
+.fshow-more {
+  border: none; background: none; color: var(--accent); font-size: 13px;
+  cursor: pointer; padding: 4px 0 0 23px; text-align: left;
+}
+.fclear {
+  align-self: flex-start; border: none; background: none; color: var(--accent);
+  font-size: 13.5px; cursor: pointer; padding: 0;
+}
+.fclear:disabled { color: var(--text2); cursor: default; }
+
+@media (max-width: 900px) {
+  .library-grid { grid-template-columns: 1fr; }
+  .filter-side { position: static; max-height: none; flex-direction: row; flex-wrap: wrap; gap: 14px; }
+  .fgroup { flex: 1 1 200px; }
+}
+
+/* 期刊分区 / 影响因子徽标 */
+.jbadge {
+  display: inline-block; background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa;
+  border-radius: 4px; padding: 1px 8px; font-size: 12px; font-weight: 500; cursor: help;
+}
