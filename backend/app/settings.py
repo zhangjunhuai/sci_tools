@@ -20,6 +20,8 @@ DEFAULTS = {
     "arxiv_keywords": "grid cell,place cell,head direction,spatial navigation,path integration,spiking neural network,cognitive map,entorhinal,hippocampus",
     # 每次抓取条数
     "arxiv_max_results": "80",
+    # 聊天模型的上下文窗口（tokens）：项目 AI 助手按它控制注入内容的预算
+    "context_window": "32768",
 }
 
 

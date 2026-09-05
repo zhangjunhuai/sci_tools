@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, displayTitle } from '../api'
 import Tip from '../components/Tip'
 import JournalBadge from '../components/JournalBadge'
+import ProjectAiPanel from '../components/ProjectAiPanel'
 
 const TYPE_LABEL = { note: '📝 笔记', result: '🧪 实验记录' }
 
@@ -137,6 +138,8 @@ export default function ProjectDetail() {
       <ItemSection title="🧪 实验记录" tip="实验设置、结果、指标对比，支持 Markdown。"
         items={results} onAdd={() => setItemModal({ item_type: 'result', title: '', content: '' })}
         onEdit={it => setItemModal({ ...it })} onDelete={deleteItem} />
+
+      <ProjectAiPanel project={proj} />
 
       {pickerOpen && (
         <PaperPicker

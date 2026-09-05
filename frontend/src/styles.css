@@ -240,3 +240,10 @@ a { color: var(--accent); }
 .proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
 .proj-card { cursor: pointer; transition: box-shadow 0.15s; }
 .proj-card:hover { box-shadow: 0 2px 10px rgba(30, 40, 60, 0.1); }
+
+/* 项目 AI 助手：上下文用量条 */
+.ctx-meter { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+.ctx-bar { height: 6px; border-radius: 3px; background: var(--border); margin-top: 4px; overflow: hidden; }
+.ctx-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.3s; }
+.ctx-fill.warn { background: #f59e0b; }
+.ctx-fill.over { background: var(--danger); }

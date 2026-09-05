@@ -180,6 +180,7 @@ class SettingsBody(BaseModel):
     arxiv_categories: str | None = None
     arxiv_keywords: str | None = None
     arxiv_max_results: str | None = None
+    context_window: str | None = None
 
 
 @router.get("/settings")
