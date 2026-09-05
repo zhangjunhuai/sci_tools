@@ -247,3 +247,10 @@ a { color: var(--accent); }
 .ctx-fill { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.3s; }
 .ctx-fill.warn { background: #f59e0b; }
 .ctx-fill.over { background: var(--danger); }
+
+/* LaTeX 编译错误展示 */
+.latex-err {
+  flex: 1 1 100%; white-space: pre-wrap; background: #fef2f2; color: #b91c1c;
+  border: 1px solid #fecaca; border-radius: 6px; padding: 8px 10px;
+  font-size: 12px; max-height: 160px; overflow: auto; margin: 0;
+}

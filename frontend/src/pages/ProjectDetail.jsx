@@ -5,7 +5,34 @@ import Tip from '../components/Tip'
 import JournalBadge from '../components/JournalBadge'
 import ProjectAiPanel from '../components/ProjectAiPanel'
 
-const TYPE_LABEL = { note: '📝 笔记', result: '🧪 实验记录' }
+const TYPE_LABEL = { note: '📝 笔记', result: '🧪 实验记录', latex: '📄 LaTeX 文档' }
+
+const TEX_TEMPLATE = `\\documentclass[UTF8]{ctexart}
+\\usepackage{amsmath,graphicx,booktabs}
+\\usepackage{hyperref}
+\\title{文档标题}
+\\author{}
+\\date{\\today}
+
+\\begin{document}
+\\maketitle
+
+\\section{背景}
+在这里写背景。
+
+\\section{方法}
+公式示例：$E = mc^2$，行内公式直接用美元符号包裹。
+
+\\section{结果}
+\\begin{tabular}{lr}
+\\toprule
+指标 & 数值 \\\\
+\\midrule
+grid score & 0.72 \\\\
+\\bottomrule
+\\end{tabular}
+
+\\end{document}`
 
 export default function ProjectDetail() {
   const { id } = useParams()
@@ -16,6 +43,7 @@ export default function ProjectDetail() {
   const [metaForm, setMetaForm] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [itemModal, setItemModal] = useState(null) // {item_type, id?, title, content}
+  const [latexState, setLatexState] = useState({}) // item_id -> {status: compiling|ok|error, error?}
 
   async function load() {
     try {
@@ -70,11 +98,23 @@ export default function ProjectDetail() {
     load()
   }
 
+  async function compileLatex(it) {
+    if (latexState[it.id]?.status === 'compiling') return
+    setLatexState(s => ({ ...s, [it.id]: { status: 'compiling' } }))
+    try {
+      const r = await api.post(`/projects/${id}/items/${it.id}/compile`)
+      setLatexState(s => ({ ...s, [it.id]: { status: 'ok', pdfUrl: r.pdf_url, compiledAt: r.compiled_at } }))
+    } catch (e) {
+      setLatexState(s => ({ ...s, [it.id]: { status: 'error', error: e.message } }))
+    }
+  }
+
   if (error) return <div className="err-msg">{error} <Link to="/projects">返回项目列表</Link></div>
   if (!proj) return <div className="loading">加载中…</div>
 
   const notes = proj.items.filter(i => i.item_type === 'note')
   const results = proj.items.filter(i => i.item_type === 'result')
+  const latexDocs = proj.items.filter(i => i.item_type === 'latex')
   const inProject = new Set(proj.papers.map(p => p.id))
 
   return (
@@ -139,6 +179,37 @@ export default function ProjectDetail() {
         items={results} onAdd={() => setItemModal({ item_type: 'result', title: '', content: '' })}
         onEdit={it => setItemModal({ ...it })} onDelete={deleteItem} />
 
+      <ItemSection title="📄 LaTeX 文档" tip="写周报、实验报告等，一键用 xelatex 编译成 PDF（支持中文）。需系统安装 TeX Live。"
+        items={latexDocs} onAdd={() => setItemModal({ item_type: 'latex', title: '', content: TEX_TEMPLATE })}
+        onEdit={it => setItemModal({ ...it })} onDelete={deleteItem}>
+        {(it) => {
+          const st = latexState[it.id] || {}
+          return (
+            <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <button className="btn sm primary" disabled={st.status === 'compiling'} onClick={() => compileLatex(it)}>
+                {st.status === 'compiling' ? '编译中…（可能需几十秒）' : '▶ 编译'}
+              </button>
+              {(st.status === 'ok' || it.pdf_ready) && (
+                <>
+                  <a href={st.pdfUrl || `/api/projects/${id}/items/${it.id}/pdf`} target="_blank" rel="noreferrer">
+                    <button className="btn sm">👁 预览 PDF</button>
+                  </a>
+                  <a href={st.pdfUrl || `/api/projects/${id}/items/${it.id}/pdf`} download>
+                    <button className="btn sm">⬇ 下载</button>
+                  </a>
+                  <span className="muted" style={{ fontSize: 12.5 }}>
+                    编译于 {st.compiledAt || it.compiled_at}
+                  </span>
+                </>
+              )}
+              {st.status === 'error' && (
+                <pre className="latex-err">{st.error}</pre>
+              )}
+            </div>
+          )
+        }}
+      </ItemSection>
+
       <ProjectAiPanel project={proj} />
 
       {pickerOpen && (
@@ -161,7 +232,7 @@ export default function ProjectDetail() {
   )
 }
 
-function ItemSection({ title, tip, items, onAdd, onEdit, onDelete }) {
+function ItemSection({ title, tip, items, onAdd, onEdit, onDelete, children }) {
   return (
     <div className="card mb16">
       <div className="row spread mb8">
@@ -181,7 +252,8 @@ function ItemSection({ title, tip, items, onAdd, onEdit, onDelete }) {
           <div className="muted" style={{ fontSize: 12.5 }}>
             {it.updated_at?.slice(0, 16) || it.created_at?.slice(0, 16)}
           </div>
-          {it.content && (
+          {children?.(it)}
+          {it.content && it.item_type !== 'latex' && (
             <div style={{
               marginTop: 4, fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap',
               color: 'var(--text2)', display: '-webkit-box', WebkitLineClamp: 3,
@@ -248,16 +320,29 @@ function ItemModal({ form, onClose, onSave }) {
   const [title, setTitle] = useState(form.title || '')
   const [content, setContent] = useState(form.content || '')
   const [saving, setSaving] = useState(false)
+  const isLatex = form.item_type === 'latex'
+
+  function insertTemplate() {
+    if (content.trim() && !confirm('插入模板会覆盖当前内容，继续？')) return
+    setContent(TEX_TEMPLATE)
+  }
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ width: 720 }} onClick={e => e.stopPropagation()}>
+      <div className="modal" style={{ width: 820 }} onClick={e => e.stopPropagation()}>
         <h2>{form.id ? '编辑' : '新建'}{TYPE_LABEL[form.item_type] || '条目'}</h2>
         <div className="form-row"><label>标题</label>
           <input value={title} onChange={e => setTitle(e.target.value)} autoFocus /></div>
-        <div className="form-row"><label>内容（支持 Markdown）</label>
-          <textarea rows={12} value={content} style={{ width: '100%', fontFamily: 'monospace', fontSize: 13.5 }}
-            onChange={e => setContent(e.target.value)} /></div>
+        <div className="form-row">
+          <div className="row spread">
+            <label>{isLatex ? 'LaTeX 源码（xelatex 编译，支持中文；推荐 ctexart 文档类）' : '内容（支持 Markdown）'}</label>
+            {isLatex && <button type="button" className="btn sm" onClick={insertTemplate}>插入中文模板</button>}
+          </div>
+          <textarea rows={isLatex ? 18 : 10} value={content}
+            style={{ width: '100%', fontFamily: 'monospace', fontSize: 13.5 }}
+            onChange={e => setContent(e.target.value)} />
+          {isLatex && <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>保存后点列表里的「▶ 编译」生成 PDF。</div>}
+        </div>
         <div className="row">
           <button className="btn primary" disabled={saving}
             onClick={async () => { setSaving(true); await onSave({ ...form, title, content }) }}>

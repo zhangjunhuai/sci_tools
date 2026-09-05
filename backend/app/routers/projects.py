@@ -1,11 +1,20 @@
-"""项目工作台：研究方向分组，收纳文献、自由笔记、实验记录。
+"""项目工作台：研究方向分组，收纳文献、自由笔记、实验记录、LaTeX 文档。
 
 文献归属存在 papers.projects（标签式，逗号 JSON），供文献库筛选复用；
 笔记与实验记录存 project_items，随项目删除级联清除。
 """
 import json
+import shutil
+import subprocess
+import tempfile
+from datetime import datetime
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+from ..config import LATEX_DIR
 from ..db import get_db
 from .. import settings as S
 from .. import db as DB
@@ -30,7 +39,7 @@ class ProjectUpdate(BaseModel):
 
 
 class ItemCreate(BaseModel):
-    item_type: str = "note"       # note | result
+    item_type: str = "note"       # note | result | latex
     title: str = ""
     content: str = ""
 
@@ -101,12 +110,20 @@ def get_project(project_id: int):
         (f'%"{d["name"]}"%',),
     ).fetchall()
     d["papers"] = [_paper_out(p) for p in papers]
-    # 笔记 / 实验记录
-    items = conn.execute(
+    # 笔记 / 实验记录 / LaTeX 文档
+    items = []
+    for x in conn.execute(
         "SELECT * FROM project_items WHERE project_id=? ORDER BY updated_at DESC",
         (project_id,),
-    ).fetchall()
-    d["items"] = [dict(x) for x in items]
+    ):
+        it = dict(x)
+        if it["item_type"] == "latex":
+            f = _latex_pdf_path(it["id"])
+            it["pdf_ready"] = f.exists()
+            if f.exists():
+                it["compiled_at"] = datetime.fromtimestamp(f.stat().st_mtime).strftime("%m-%d %H:%M")
+        items.append(it)
+    d["items"] = items
     # 全库文献简要列表（前端添加文献弹窗用）
     all_papers = conn.execute(
         "SELECT id, title, year, venue FROM papers ORDER BY created_at DESC LIMIT 2000"
@@ -212,8 +229,8 @@ def remove_paper(project_id: int, paper_id: int):
 def create_item(project_id: int, body: ItemCreate):
     conn = get_db()
     _get_project(conn, project_id)
-    if body.item_type not in ("note", "result"):
-        raise HTTPException(400, "item_type 必须是 note 或 result")
+    if body.item_type not in ("note", "result", "latex"):
+        raise HTTPException(400, "item_type 必须是 note、result 或 latex")
     cur = conn.execute(
         "INSERT INTO project_items(project_id, item_type, title, content) VALUES(?,?,?,?)",
         (project_id, body.item_type, body.title.strip(), body.content),
@@ -252,8 +269,90 @@ def delete_item(project_id: int, item_id: int):
     conn = get_db()
     _get_project(conn, project_id)
     conn.execute("DELETE FROM project_items WHERE id=? AND project_id=?", (item_id, project_id))
+    # 顺带清理已编译的 PDF
+    (LATEX_DIR / f"item_{item_id}.pdf").unlink(missing_ok=True)
     conn.commit()
     return {"ok": True}
+
+
+def _latex_pdf_path(item_id: int) -> Path:
+    return LATEX_DIR / f"item_{item_id}.pdf"
+
+
+def _log_errors(log_path: Path) -> str:
+    """从 xelatex 日志提取报错行（! 开头）+ 上下文，失败则取尾部。"""
+    if not log_path.exists():
+        return ""
+    text = log_path.read_text(encoding="utf-8", errors="ignore")
+    lines = text.splitlines()
+    errs = [l for l in lines if l.startswith("!")]
+    if errs:
+        out, capture = [], 0
+        for i, l in enumerate(lines):
+            if l.startswith("!"):
+                capture = 6
+            if capture > 0:
+                out.append(l)
+                capture -= 1
+            if len(out) > 40:
+                break
+        return "\n".join(out)[:1800]
+    return text[-1200:]
+
+
+@router.post("/{project_id}/items/{item_id}/compile")
+def compile_latex(project_id: int, item_id: int):
+    """用 xelatex 把 LaTeX 文档编译成 PDF（临时目录沙箱，跑两遍以生成交叉引用）。"""
+    conn = get_db()
+    _get_project(conn, project_id)
+    r = conn.execute(
+        "SELECT * FROM project_items WHERE id=? AND project_id=? AND item_type='latex'",
+        (item_id, project_id),
+    ).fetchone()
+    if r is None:
+        raise HTTPException(404, "LaTeX 文档不存在")
+    src = r["content"] or ""
+    if not src.strip():
+        raise HTTPException(400, "文档内容为空")
+
+    try:
+        with tempfile.TemporaryDirectory(dir=LATEX_DIR, prefix="build_") as td:
+            (Path(td) / "doc.tex").write_text(src, encoding="utf-8")
+            for _ in range(2):
+                proc = subprocess.run(
+                    ["xelatex", "-interaction=nonstopmode", "-halt-on-error", "doc.tex"],
+                    cwd=td, capture_output=True, text=True, timeout=180,
+                )
+            pdf = Path(td) / "doc.pdf"
+            if not pdf.exists():
+                raise HTTPException(400, "编译失败：\n" + (_log_errors(Path(td) / "doc.log") or (proc.stderr or "")[-800:]))
+            out = _latex_pdf_path(item_id)
+            shutil.copyfile(pdf, out)
+    except subprocess.TimeoutExpired:
+        raise HTTPException(400, "编译超时（超过 3 分钟），请检查文档是否有死循环命令")
+    except HTTPException:
+        raise
+    except FileNotFoundError:
+        raise HTTPException(500, "未找到 xelatex，请先安装 TeX Live（sudo apt install texlive-xetex texlive-lang-chinese）")
+
+    ts = datetime.fromtimestamp(out.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+    return {"ok": True, "pdf_url": f"/api/projects/{project_id}/items/{item_id}/pdf", "compiled_at": ts}
+
+
+@router.get("/{project_id}/items/{item_id}/pdf")
+def latex_pdf(project_id: int, item_id: int):
+    conn = get_db()
+    _get_project(conn, project_id)
+    r = conn.execute(
+        "SELECT title FROM project_items WHERE id=? AND project_id=? AND item_type='latex'",
+        (item_id, project_id),
+    ).fetchone()
+    if r is None:
+        raise HTTPException(404, "LaTeX 文档不存在")
+    f = _latex_pdf_path(item_id)
+    if not f.exists():
+        raise HTTPException(404, "尚未编译，先点「编译」生成 PDF")
+    return FileResponse(f, media_type="application/pdf", filename=f"{r['title'] or 'document'}.pdf")
 
 
 # ---------- 项目 AI 助手 ----------
