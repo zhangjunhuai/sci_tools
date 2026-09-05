@@ -114,7 +114,7 @@ export default function PaperDetail() {
       <div className="detail-grid">
         <div className="pdf-pane">
           {paper.has_pdf ? (
-            <PdfViewer paperId={paper.id} annotations={annotations} onAdd={addAnnotation} onDelete={deleteAnnotation} />
+            <PdfViewer paperId={paper.id} initialPage={paper.last_page || 1} annotations={annotations} onAdd={addAnnotation} onDelete={deleteAnnotation} />
           ) : (
             <div style={{ padding: 30 }}>
               <div className="empty">这篇文献还没有 PDF。</div>
@@ -164,6 +164,8 @@ export default function PaperDetail() {
           <NotesCard paper={paper} onSaved={p => setPaper(prev => ({ ...prev, ...p }))} />
 
           <CitationsCard paper={paper} nav={nav} />
+
+          <RelatedCard paper={paper} nav={nav} />
 
           <AiPanel paper={paper} />
         </div>
@@ -242,6 +244,7 @@ function NotesCard({ paper, onSaved }) {
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(paper.notes || '')
   const [saving, setSaving] = useState(false)
+  const [drafting, setDrafting] = useState(false)
 
   useEffect(() => { setText(paper.notes || '') }, [paper.id])
 
@@ -256,14 +259,38 @@ function NotesCard({ paper, onSaved }) {
     }
   }
 
+  async function genDraft() {
+    if (drafting) return
+    if (paper.notes && !confirm('将用 AI 整理本文的高亮/批注生成笔记草稿，追加到现有笔记末尾。继续？')) return
+    setDrafting(true)
+    try {
+      const r = await api.post(`/papers/${paper.id}/note_draft`)
+      const p = await api.get(`/papers/${paper.id}`)
+      onSaved(p)
+      setText(r.notes)
+      setEditing(true)
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setDrafting(false)
+    }
+  }
+
   return (
     <div className="card">
       <div className="row spread">
         <strong>
           阅读笔记
-          <Tip text="支持 Markdown；用 [[论文标题]] 可双链到库里其他论文（点击跳转）。" />
+          <Tip text="支持 Markdown；用 [[论文标题]] 可双链到库里其他论文（点击跳转）。「AI 整理草稿」把本文的高亮和批注整理成结构化笔记追加到这里。" />
         </strong>
-        {!editing && <button className="btn sm" onClick={() => setEditing(true)}>编辑</button>}
+        {!editing && (
+          <div className="row">
+            <button className="btn sm" disabled={drafting} onClick={genDraft}>
+              {drafting ? '整理中…' : '✨ AI 整理草稿'}
+            </button>
+            <button className="btn sm" onClick={() => setEditing(true)}>编辑</button>
+          </div>
+        )}
       </div>
       {editing ? (
         <>
@@ -390,6 +417,82 @@ function CitationsCard({ paper, nav }) {
             {it.arxiv_id && <a href={`https://arxiv.org/abs/${it.arxiv_id}`} target="_blank" rel="noreferrer">
               <button className="btn sm">arXiv</button></a>}
           </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function RelatedCard({ paper, nav }) {
+  const [items, setItems] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [collapsed, setCollapsed] = useState(false)
+
+  async function load() {
+    setLoading(true); setError(''); setItems(null); setCollapsed(false)
+    try {
+      const r = await api.get(`/papers/${paper.id}/related`)
+      setItems(r.items)
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function add(it, idx) {
+    try {
+      const r = await api.post('/papers/add_cited', { item: it })
+      setItems(prev => prev.map((x, i) => i === idx ? { ...x, in_library: true, paper_id: r.paper_id } : x))
+    } catch (e) {
+      alert(e.message)
+    }
+  }
+
+  return (
+    <div className="card">
+      <div className="row spread mb8">
+        <strong>
+          相关文献推荐
+          <Tip text="基于本文在 Semantic Scholar 上的相似论文推荐，库内已有的会直接标出。" />
+        </strong>
+        <div className="row">
+          {items && items.length > 0 && (
+            <button className="btn sm" onClick={() => setCollapsed(c => !c)}>
+              {collapsed ? `展开（${items.length}）` : '折叠'}
+            </button>
+          )}
+          <button className="btn sm" disabled={loading} onClick={load}>
+            {loading ? '查询中…' : items ? '刷新' : '查询推荐'}
+          </button>
+        </div>
+      </div>
+      {!items && !loading && !error && <div className="muted">点击「查询推荐」看看相关研究。</div>}
+      {error && <div className="err-msg">{error}</div>}
+      {items && items.length === 0 && <div className="muted">没有查到推荐。</div>}
+      {!collapsed && (items || []).map((it, i) => (
+        <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600 }}>
+            {it.in_library ? (
+              <span className="clickable" style={{ color: 'var(--accent)' }}
+                onClick={() => it.paper_id && nav(`/papers/${it.paper_id}`)}>
+                {it.title}（已入库，点击查看）
+              </span>
+            ) : it.title}
+          </div>
+          <div className="muted">
+            {it.authors?.slice(0, 3).join(', ')}{it.authors?.length > 3 ? ' et al.' : ''}
+            {it.year ? ` · ${it.year}` : ''}{it.venue ? ` · ${it.venue}` : ''}
+            {it.citationCount != null ? ` · 被引 ${it.citationCount}` : ''}
+          </div>
+          {!it.in_library && (
+            <div className="row" style={{ marginTop: 4 }}>
+              <button className="btn sm primary" onClick={() => add(it, i)}>＋ 入库</button>
+              {it.arxiv_id && <a href={`https://arxiv.org/abs/${it.arxiv_id}`} target="_blank" rel="noreferrer">
+                <button className="btn sm">arXiv</button></a>}
+            </div>
+          )}
         </div>
       ))}
     </div>

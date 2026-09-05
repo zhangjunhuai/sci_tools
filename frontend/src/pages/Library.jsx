@@ -6,9 +6,10 @@ import CompareModal from '../components/CompareModal'
 import JournalBadge from '../components/JournalBadge'
 
 const STATUS_LABEL = { unread: '未读', reading: '在读', read: '已读' }
+const ZONE_LABEL = { 1: '1 区', 2: '2 区', 3: '3 区', 4: '4 区' }
 const TAG_PREVIEW = 12
 
-const EMPTY_FILTERS = { status: new Set(), projects: new Set(), tags: new Set(), starred: false }
+const EMPTY_FILTERS = { status: new Set(), projects: new Set(), tags: new Set(), zones: new Set(), starred: false }
 
 export default function Library() {
   const nav = useNavigate()
@@ -37,6 +38,7 @@ export default function Library() {
     if (filters.status.size) params.set('status', [...filters.status].join(','))
     if (filters.projects.size) params.set('project', [...filters.projects].join(','))
     if (filters.tags.size) params.set('tag', [...filters.tags].join(','))
+    if (filters.zones.size) params.set('zone', [...filters.zones].join(','))
     if (filters.starred) params.set('starred', 'true')
     return params
   }, [q, mode, filters])
@@ -180,7 +182,8 @@ export default function Library() {
   }
 
   const activeFilterCount =
-    filters.status.size + filters.projects.size + filters.tags.size + (filters.starred ? 1 : 0)
+    filters.status.size + filters.projects.size + filters.tags.size + filters.zones.size +
+    (filters.starred ? 1 : 0)
 
   function clearFilters() {
     setFilters(EMPTY_FILTERS)
@@ -231,6 +234,16 @@ export default function Library() {
               onChange={() => setFilters(f => ({ ...f, starred: !f.starred }))}
               label="★ 星标文献" />
           </div>
+
+          {(facets?.zones?.length ?? 0) > 0 && (
+            <div className="fgroup">
+              <div className="fgroup-title">中科院分区</div>
+              {facets.zones.map(([z, n]) => (
+                <FilterRow key={z} checked={filters.zones.has(z)} onChange={() => toggleSet('zones', z)}
+                  label={ZONE_LABEL[z] || `${z} 区`} count={n} />
+              ))}
+            </div>
+          )}
 
           {(facets?.projects?.length ?? 0) > 0 && (
             <div className="fgroup">

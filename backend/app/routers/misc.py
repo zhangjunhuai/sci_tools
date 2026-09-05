@@ -9,6 +9,7 @@ from ..db import get_db
 from .. import jobs as J
 from .. import settings as S
 from .. import tasks
+from .. import journalinfo
 
 router = APIRouter(prefix="/api", tags=["misc"])
 
@@ -71,8 +72,8 @@ async def zotero_import(file: UploadFile = File(...)):
 @router.get("/facets")
 def facets():
     conn = get_db()
-    rows = conn.execute("SELECT tags, projects, status, year FROM papers").fetchall()
-    tag_counts, proj_counts, status_counts, year_counts = {}, {}, {}, {}
+    rows = conn.execute("SELECT tags, projects, status, year, venue FROM papers").fetchall()
+    tag_counts, proj_counts, status_counts, year_counts, zone_counts = {}, {}, {}, {}, {}
     import json
     for r in rows:
         for t in _load(r["tags"]):
@@ -82,12 +83,70 @@ def facets():
         status_counts[r["status"]] = status_counts.get(r["status"], 0) + 1
         if r["year"]:
             year_counts[r["year"]] = year_counts.get(r["year"], 0) + 1
+        z = (journalinfo.lookup(r["venue"]) or {}).get("z")
+        if z:
+            zone_counts[z] = zone_counts.get(z, 0) + 1
     return {
         "tags": _sorted(tag_counts),
         "projects": _sorted(proj_counts),
         "statuses": _sorted(status_counts),
         "years": sorted(year_counts.items(), key=lambda kv: -kv[0]),
+        "zones": sorted(zone_counts.items(), key=lambda kv: kv[0]),
     }
+
+
+# ---------- 知识图谱（双链 + 语义相似度） ----------
+
+@router.get("/graph")
+def graph(sim_threshold: float = 0.72):
+    """节点 = 库内文献；边 = 笔记 [[双链]]（kind=link）+ 语义相似（kind=sim）。"""
+    import re
+    import numpy as np
+    conn = get_db()
+    rows = conn.execute("SELECT id, title, status, starred, notes, embedding FROM papers").fetchall()
+
+    def title_key(s):
+        return journalinfo.norm_name(re.sub(r"\.pdf$", "", s or "", flags=re.I))
+
+    nodes, tmap, embeds = [], {}, {}
+    for r in rows:
+        nodes.append({"id": r["id"], "title": r["title"], "status": r["status"], "starred": bool(r["starred"])})
+        tmap[title_key(r["title"])] = r["id"]
+        if r["embedding"]:
+            try:
+                embeds[r["id"]] = np.frombuffer(r["embedding"], dtype=np.float32)
+            except ValueError:
+                pass
+
+    edges, seen = [], set()
+
+    def add_edge(a, b, kind):
+        key = (min(a, b), max(a, b), kind)
+        if a == b or key in seen:
+            return
+        seen.add(key)
+        edges.append({"source": a, "target": b, "kind": kind})
+
+    # 笔记 [[双链]]
+    for r in rows:
+        for name in re.findall(r"\[\[([^\]]+)\]\]", r["notes"] or ""):
+            target = tmap.get(title_key(name))
+            if target:
+                add_edge(r["id"], target, "link")
+
+    # 语义相似：每节点取最相似的 2 篇（双向去重后保留）
+    if len(embeds) >= 2:
+        ids = list(embeds.keys())
+        mat = np.stack([embeds[i] for i in ids])
+        if len({m.shape for m in mat}) == 1:  # 向量维度一致才可比
+            mat = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-9)
+            sims = mat @ mat.T
+            for i, pi in enumerate(ids):
+                for j in np.argsort(-sims[i])[1:3]:
+                    if sims[i][j] >= sim_threshold:
+                        add_edge(pi, ids[j], "sim")
+
+    return {"nodes": nodes, "edges": edges}
 
 
 def _load(s):

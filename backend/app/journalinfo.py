@@ -18,7 +18,7 @@ if _DATA_FILE.exists():
     _journals = raw.get("journals", {})
 
 
-def _norm(s: str) -> str:
+def norm_name(s: str) -> str:
     s = (s or "").lower()
     s = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", s)
     return re.sub(r"\s+", " ", s).strip()
@@ -26,7 +26,12 @@ def _norm(s: str) -> str:
 
 def lookup(venue: str | None) -> dict | None:
     """按刊名查期刊元数据，返回 None 表示非期刊或未收录。"""
-    return _journals.get(_norm(venue))
+    return _journals.get(norm_name(venue))
+
+
+def zone_map() -> dict:
+    """归一化刊名 -> 中科院大类分区（'1'-'4'），供筛选/统计使用。"""
+    return {k: e["z"] for k, e in _journals.items() if e.get("z")}
 
 
 def journal_out(entry: dict) -> dict:
@@ -38,6 +43,7 @@ def journal_out(entry: dict) -> dict:
         "jcr_category": entry.get("c"),
         "cas_zone": entry.get("z"),
         "cas_top": bool(entry.get("t")),
+        "warn_years": entry.get("wy") or [],
         "cas_year": _meta.get("cas_year"),
         "jcr_year": _meta.get("jcr_year"),
     }

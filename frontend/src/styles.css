@@ -234,3 +234,4 @@ a { color: var(--accent); }
   display: inline-block; background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa;
   border-radius: 4px; padding: 1px 8px; font-size: 12px; font-weight: 500; cursor: help;
 }
+.jbadge-warn { background: #fef2f2; color: #b91c1c; border-color: #fecaca; font-weight: 600; }

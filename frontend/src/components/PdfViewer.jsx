@@ -35,7 +35,7 @@ function fixVisualOrder(textDiv) {
   for (const it of sorted) textDiv.appendChild(it.c)
 }
 
-export default function PdfViewer({ paperId, annotations, onAdd, onDelete }) {
+export default function PdfViewer({ paperId, initialPage, annotations, onAdd, onDelete }) {
   const scrollRef = useRef(null)
   const [doc, setDoc] = useState(null)
   const [numPages, setNumPages] = useState(0)
@@ -48,11 +48,13 @@ export default function PdfViewer({ paperId, annotations, onAdd, onDelete }) {
   const renderedPages = useRef(new Map()) // pageNum -> rendered scale key
   const pageRefs = useRef([])
   const abortRef = useRef(null) // 翻译请求取消器
+  const progressTimer = useRef(null) // 阅读进度防抖保存器
+  const [resumed, setResumed] = useState(false) // 是否已恢复到上次阅读位置
   const [pageDims, setPageDims] = useState(null) // {w, h} 第一页 PDF 单位尺寸
 
   useEffect(() => {
     let live = true
-    setDoc(null); setCurrentPage(1); setSelected(null); setTranslation(null)
+    setDoc(null); setCurrentPage(1); setSelected(null); setTranslation(null); setResumed(false)
     renderedPages.current.clear()
     ;(async () => {
       try {
@@ -184,6 +186,30 @@ export default function PdfViewer({ paperId, annotations, onAdd, onDelete }) {
     return () => { el.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf) }
   }, [doc, scale, currentPage, renderPage])
 
+  // 阅读进度记忆：恢复 + 防抖保存
+  useEffect(() => {
+    if (!doc) return
+    // 恢复：仅首次加载且 paper 有 last_page 时跳转（从第 1 页重读则无需跳）
+    if (!resumed && initialPage > 1 && initialPage <= doc.numPages) {
+      const w = pageRefs.current[initialPage - 1]
+      if (w && scrollRef.current) scrollRef.current.scrollTo({ top: w.offsetTop - 10 })
+      setResumed(true)
+    }
+  }, [doc, initialPage, resumed])
+
+  useEffect(() => {
+    if (!doc) return
+    clearTimeout(progressTimer.current)
+    progressTimer.current = setTimeout(() => {
+      fetch(`/api/papers/${paperId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ last_page: currentPage }),
+      }).catch(() => {})
+    }, 800)
+    return () => clearTimeout(progressTimer.current)
+  }, [doc, paperId, currentPage])
+
   // 初始渲染第一页
   useEffect(() => {
     if (doc) renderPage(1)
@@ -286,6 +312,11 @@ export default function PdfViewer({ paperId, annotations, onAdd, onDelete }) {
           <button className="btn sm" disabled={currentPage <= 1} onClick={() => jumpTo(currentPage - 1)}>‹ 上一页</button>
           <span className="muted">{currentPage} / {numPages}</span>
           <button className="btn sm" disabled={currentPage >= numPages} onClick={() => jumpTo(currentPage + 1)}>下一页 ›</button>
+          {!resumed && initialPage > 1 && initialPage <= numPages && (
+            <button className="btn sm" onClick={() => jumpTo(initialPage)} title="自动跳过一次后可手动再跳">
+              ↩ 回到上次阅读（第 {initialPage} 页）
+            </button>
+          )}
         </div>
         <div className="row">
           <button className="btn sm" onClick={() => setScale(s => Math.max(0.5, Math.round((s - 0.2) * 10) / 10))}>－</button>

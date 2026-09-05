@@ -1,9 +1,12 @@
-"""构建期刊分区/影响因子离线数据 journal_meta.json。
+"""构建期刊分区/影响因子/预警名单离线数据 journal_meta.json。
 
 数据来源：hitfyd/ShowJCR 项目收录的官方原始数据
-  - 中科院分区表升级版（advanced.fenqubiao.com，2025 版）
-  - JCR 期刊引证报告（2025 版）
-用法：下载两个 CSV 后运行本脚本，输出到 backend/app/data/journal_meta.json。
+  - 中科院分区表升级版（advanced.fenqubiao.com，2025 版）：FQBJCR2025-UTF8.csv
+  - JCR 期刊引证报告（2025 版）：JCR2025-UTF8.csv
+  - 中科院国际期刊预警名单（2020/2021/2023/2024/2025 版）：GJQKYJMD*.csv
+用法：把上述 CSV 放到本目录（或用参数指定路径）后运行：
+  python3 build_journal_meta.py
+输出 backend/app/data/journal_meta.json。
 """
 import csv
 import json
@@ -11,8 +14,9 @@ import re
 import sys
 from pathlib import Path
 
-FQB_CSV = "FQBJCR2025.csv"   # 中科院分区表升级版
-JCR_CSV = "JCR2025.csv"      # JCR 影响因子
+FQB_CSV = "FQBJCR2025-UTF8.csv"    # 中科院分区表升级版
+JCR_CSV = "JCR2025-UTF8.csv"       # JCR 影响因子
+WARN_YEARS = ["2020", "2021", "2023", "2024", "2025"]  # 预警名单年份
 OUT = Path(__file__).resolve().parent.parent / "app" / "data" / "journal_meta.json"
 
 BEST_Q = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
@@ -28,6 +32,28 @@ def zone_of(v: str):
     """'4 [625/778]' -> '4'；空返回 None。"""
     m = re.match(r"\s*(\d)", v or "")
     return m.group(1) if m else None
+
+
+def warn_data():
+    """读预警名单 CSV，返回 {归一化刊名: [{'year':.., 'info':..}]}。
+
+    2020-2023 为预警等级（低/中/高），2024 起为预警原因（可多个）。
+    """
+    out = {}
+    for year in WARN_YEARS:
+        path = Path(__file__).parent / f"GJQKYJMD{year}.csv"
+        if not path.exists():
+            continue
+        col2 = f"预警等级（{year}）" if year in ("2020", "2021", "2023") else f"预警原因（{year}）"
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            for r in csv.DictReader(f):
+                name = (r.get("Journal") or "").strip()
+                info = (r.get(col2) or "").strip()
+                if not name:
+                    continue
+                out.setdefault(norm_name(name), {"name": name, "list": []})
+                out[norm_name(name)]["list"].append({"year": year, "info": info})
+    return out
 
 
 def main():
@@ -82,15 +108,21 @@ def main():
                 e["w"] = r["Web of Science"].strip()
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
+    warnings = warn_data()
+    # 预警信息并入对应期刊条目；不在 JCR/分区表中的预警期刊也保留
+    for key, w in warnings.items():
+        e = journals.setdefault(key, {"n": w["name"], "i": None, "q": None, "c": "", "w": ""})
+        e["wy"] = w["list"]
     payload = {
-        "meta": {"cas_year": 2025, "jcr_year": 2025,
-                 "source": "中科院文献情报中心期刊分区表升级版 + JCR，经 hitfyd/ShowJCR 数据文件转换"},
+        "meta": {"cas_year": 2025, "jcr_year": 2025, "warn_years": WARN_YEARS,
+                 "source": "中科院文献情报中心期刊分区表升级版 + JCR + 国际期刊预警名单，经 hitfyd/ShowJCR 数据文件转换"},
         "journals": journals,
     }
     OUT.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     with_zone = sum(1 for e in journals.values() if e.get("z"))
     with_if = sum(1 for e in journals.values() if e.get("i"))
-    print(f"期刊总数 {len(journals)}，含分区 {with_zone}，含影响因子 {with_if}")
+    with_warn = sum(1 for e in journals.values() if e.get("wy"))
+    print(f"期刊总数 {len(journals)}，含分区 {with_zone}，含影响因子 {with_if}，预警期刊 {with_warn}")
     print(f"输出 {OUT}（{OUT.stat().st_size / 1e6:.1f} MB）")
 
 

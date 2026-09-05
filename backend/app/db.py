@@ -35,6 +35,7 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'unread',    -- unread | reading | read
             starred INTEGER NOT NULL DEFAULT 0,
             notes TEXT NOT NULL DEFAULT '',
+            last_page INTEGER,                        -- PDF 上次读到的页码（阅读进度记忆）
             ai_summary TEXT,
             pdf_path TEXT,                            -- relative to PDF_DIR
             pdf_text TEXT,                            -- extracted plain text
@@ -91,6 +92,10 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_feed_created ON feed_items(created_at DESC);
         """
     )
+    # 旧库迁移：补充新增列
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(papers)").fetchall()]
+    if "last_page" not in cols:
+        conn.execute("ALTER TABLE papers ADD COLUMN last_page INTEGER")
     # trigram tokenizer: 支持中文子串检索（unicode61 对 CJK 不友好）
     conn.execute(
         "CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5("

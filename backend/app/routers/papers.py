@@ -32,6 +32,7 @@ class PaperUpdate(BaseModel):
     status: str | None = None
     starred: bool | None = None
     notes: str | None = None
+    last_page: int | None = None
 
 
 class BatchDeleteBody(BaseModel):
@@ -56,6 +57,7 @@ def list_papers(
     year: int | None = None,
     tag: str = "",
     project: str = "",
+    zone: str = "",
     sort: str = Query("created_desc", pattern="^(created_desc|created_asc|year_desc|year_asc|title_asc|starred)$"),
     limit: int = 100,
     offset: int = 0,
@@ -81,6 +83,17 @@ def list_papers(
         if rows is not None:
             where.append(f"id IN ({','.join('?' * len(rows))})")
             params.extend(rows)
+    if zone:
+        # 中科院分区筛选（多值 OR）：按分区表匹配每篇论文的 venue
+        want = [v for v in zone.split(",") if v]
+        matched = [
+            r["id"] for r in conn.execute("SELECT id, venue FROM papers").fetchall()
+            if (journalinfo.lookup(r["venue"]) or {}).get("z") in want
+        ]
+        if not matched:
+            return {"total": 0, "items": []}
+        where.append(f"id IN ({','.join('?' * len(matched))})")
+        params.extend(matched)
     if status:
         vals = [v for v in status.split(",") if v]
         where.append(f"status IN ({','.join('?' * len(vals))})")
@@ -274,6 +287,60 @@ def delete_paper(paper_id: int):
     conn.execute("DELETE FROM papers WHERE id=?", (paper_id,))
     conn.commit()
     return {"ok": True}
+
+
+@router.post("/{paper_id}/note_draft")
+def note_draft(paper_id: int):
+    if not S.ai_configured():
+        raise HTTPException(400, "请先在设置中配置 API Key")
+    conn = get_db()
+    row = conn.execute(
+        "SELECT title, abstract, notes, pdf_text FROM papers WHERE id=?", (paper_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404)
+    anns = [
+        DB.row_to_dict(r) for r in conn.execute(
+            "SELECT page, kind, color, content, comment FROM annotations WHERE paper_id=? ORDER BY page, id",
+            (paper_id,),
+        )
+    ]
+    if not anns:
+        raise HTTPException(400, "这篇文献还没有高亮或批注，先在 PDF 里划选标注吧")
+
+    lines = []
+    for a in anns:
+        mark = {"yellow": "🟡", "green": "🟢", "blue": "🔵", "red": "🔴"}.get(a["color"], "🟡")
+        entry = f"- {mark} 第{a['page']}页：\"{(a['content'] or '').strip()[:300]}\""
+        if a["comment"]:
+            entry += f"\n  我的批注：{a['comment']}"
+        lines.append(entry)
+    ann_text = "\n".join(lines)[:8000]
+
+    prompt = (
+        f"论文标题：{row['title']}\n"
+        f"摘要：{(row['abstract'] or '（无）')[:1500]}\n\n"
+        f"以下是阅读时的划线高亮和批注：\n{ann_text}\n\n"
+        "请把这些素材整理成一篇结构化中文读书笔记（Markdown），包含：\n"
+        "## 核心观点（3-5 条，综合高亮和摘要提炼）\n"
+        "## 关键细节（方法/数据/结果中值得记住的点）\n"
+        "## 我的思考（汇总用户批注，没有批注就写值得追问的问题）\n"
+        "只输出 Markdown 正文，不要寒暄。"
+    )
+    from .. import ai_client
+    try:
+        draft = ai_client.chat([{"role": "user", "content": prompt}], temperature=0.4, max_tokens=2500)
+    except ai_client.AICallError as e:
+        raise HTTPException(502, f"AI 调用失败：{e}")
+
+    header = f"\n\n---\n\n# AI 笔记草稿（生成于 {__import__('datetime').date.today()}）\n\n"
+    notes = (row["notes"] or "").rstrip() + header + draft.strip() + "\n"
+    conn.execute(
+        "UPDATE papers SET notes=?, updated_at=datetime('now','localtime') WHERE id=?",
+        (notes, paper_id),
+    )
+    conn.commit()
+    return {"ok": True, "notes": notes}
 
 
 @router.get("/{paper_id}/pdf")

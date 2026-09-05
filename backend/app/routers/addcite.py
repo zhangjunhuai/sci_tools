@@ -125,6 +125,55 @@ def citations(paper_id: int, direction: str = "both", limit: int = 40):
     return out
 
 
+S2_RECO_BASE = "https://api.semanticscholar.org/recommendations/v1"
+
+
+@router.get("/papers/{paper_id}/related")
+def related_papers(paper_id: int, limit: int = 8):
+    """Semantic Scholar 相关文献推荐（基于单篇），标记库内已有。"""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT arxiv_id, doi FROM papers WHERE id=?", (paper_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(404)
+    s2_id = _s2_paper_id(DB.row_to_dict(row))
+    if not s2_id:
+        raise HTTPException(400, "该文献没有 arXiv ID 或 DOI，无法获取推荐")
+
+    try:
+        r = httpx.post(
+            f"{S2_RECO_BASE}/papers",
+            json={"positivePaperIds": [s2_id], "negativePaperIds": []},
+            params={"fields": S2_FIELDS, "limit": min(limit, 20)},
+            timeout=30,
+        )
+        r.raise_for_status()
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Semantic Scholar 推荐请求失败：{e}")
+
+    items = []
+    for p in r.json().get("recommendedPapers") or []:
+        ext = p.get("externalIds") or {}
+        items.append(
+            {
+                "title": p.get("title"),
+                "year": p.get("year"),
+                "venue": p.get("venue"),
+                "abstract": p.get("abstract"),
+                "citationCount": p.get("citationCount"),
+                "arxiv_id": ext.get("ArXiv"),
+                "doi": ext.get("DOI"),
+                "authors": [a.get("name") for a in (p.get("authors") or [])][:6],
+            }
+        )
+    _mark_in_library(conn, {"recommendations": items})
+    for it in items:
+        it["in_library"] = it.get("in_library") or False
+        it["paper_id"] = it.get("paper_id")
+    return {"items": items}
+
+
 def _s2_get(path: str, limit: int):
     try:
         r = httpx.get(
@@ -160,8 +209,8 @@ def _s2_get(path: str, limit: int):
 
 
 def _mark_in_library(conn, out: dict):
-    """给每条引文标 in_library + paper_id，方便前端一键跳转/入库。"""
-    all_items = out.get("references", []) + out.get("citations", [])
+    """给每个条目列表里的文献标 in_library + paper_id，方便前端一键跳转/入库。"""
+    all_items = [it for v in out.values() if isinstance(v, list) for it in v]
     arxiv_ids = [it["arxiv_id"] for it in all_items if it["arxiv_id"]]
     dois = [it["doi"] for it in all_items if it["doi"]]
     in_lib = {}
@@ -173,8 +222,10 @@ def _mark_in_library(conn, out: dict):
         q = ",".join("?" * len(dois))
         for r in conn.execute(f"SELECT id, doi FROM papers WHERE doi IN ({q})", dois):
             in_lib[f"d:{r['doi']}"] = r["id"]
-    for key in ("references", "citations"):
-        for it in out.get(key, []):
+    for items in out.values():
+        if not isinstance(items, list):
+            continue
+        for it in items:
             pid = in_lib.get(f"a:{it['arxiv_id']}") or in_lib.get(f"d:{it['doi']}")
             it["in_library"] = pid is not None
             it["paper_id"] = pid
