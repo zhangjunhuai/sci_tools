@@ -98,7 +98,7 @@ export default function PaperDetail() {
             {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
           <button className="btn" onClick={() => patch({ starred: !paper.starred })}>
-            {paper.starred ? '★ 已星标' : '<Icon name="star" size={13} filled={paper.starred} /> 星标'}
+            <Icon name="star" size={13} filled={paper.starred} /> {paper.starred ? '已星标' : '星标'}
           </button>
           <button className="btn" onClick={copyBibtex}>BibTeX</button>
           <button className="btn danger" onClick={delPaper}><Icon name="trash" size={13} /> 删除</button>
