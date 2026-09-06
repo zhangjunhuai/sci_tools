@@ -35,11 +35,13 @@ RESERVED_TOKENS = 4000
 class ProjectCreate(BaseModel):
     name: str
     description: str = ""
+    icon: str = "📁"
 
 
 class ProjectUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
+    icon: str | None = None
 
 
 class ItemCreate(BaseModel):
@@ -74,6 +76,12 @@ def list_projects():
             "SELECT project_id, COUNT(*) c FROM project_items GROUP BY project_id"
         )
     }
+    last_activity = {
+        r["project_id"]: r["m"]
+        for r in conn.execute(
+            "SELECT project_id, MAX(updated_at) m FROM project_items GROUP BY project_id"
+        )
+    }
     paper_counts = {}
     for r in conn.execute("SELECT projects, id FROM papers"):
         for p in json.loads(r["projects"] or "[]"):
@@ -83,8 +91,46 @@ def list_projects():
         d = dict(r)
         d["note_count"] = counts.get(r["id"], 0)
         d["paper_count"] = paper_counts.get(r["name"], 0)
+        d["last_activity"] = last_activity.get(r["id"]) or r["created_at"]
         items.append(d)
     return {"items": items}
+
+
+@router.get("/activity")
+def recent_activity(limit: int = 30):
+    """项目最近活动流（由现有数据推导：条目增改、项目创建、文献归入项目）。"""
+    conn = get_db()
+    events = []
+    name2proj = {r["name"]: r for r in conn.execute("SELECT id, name, icon FROM projects")}
+
+    for r in conn.execute("SELECT id, name, icon, description, created_at FROM projects"):
+        events.append({"project_id": r["id"], "project_name": r["name"], "icon": r["icon"],
+                       "kind": "project", "action": "新建项目",
+                       "detail": r["description"] or "", "time": r["created_at"]})
+
+    for r in conn.execute(
+        "SELECT pi.item_type, pi.title, pi.created_at, pi.updated_at, "
+        "       p.name AS project_name, p.icon AS picon "
+        "FROM project_items pi JOIN projects p ON p.id = pi.project_id"
+    ):
+        label = {"note": "笔记", "result": "实验记录", "latex": "LaTeX 文档"}.get(r["item_type"], "条目")
+        common = {"project_name": r["project_name"], "icon": r["picon"], "detail": r["title"] or ""}
+        events.append({**common, "project_id": None, "kind": r["item_type"],
+                       "action": f"新增{label}", "time": r["created_at"]})
+        if r["updated_at"] and r["updated_at"] != r["created_at"]:
+            events.append({**common, "project_id": None, "kind": "update",
+                           "action": f"更新{label}", "time": r["updated_at"]})
+
+    for r in conn.execute("SELECT id, title, updated_at, projects FROM papers WHERE projects LIKE '%\"%'"):
+        for name in json.loads(r["projects"] or "[]"):
+            p = name2proj.get(name)
+            if p:
+                events.append({"project_id": p["id"], "project_name": name, "icon": p["icon"],
+                               "kind": "paper", "action": "添加文献",
+                               "detail": f"《{r['title']}》", "time": r["updated_at"]})
+
+    events.sort(key=lambda e: e["time"] or "", reverse=True)
+    return {"items": events[:limit]}
 
 
 @router.post("")
@@ -96,8 +142,8 @@ def create_project(body: ProjectCreate):
     if conn.execute("SELECT 1 FROM projects WHERE name=?", (name,)).fetchone():
         raise HTTPException(400, f"项目「{name}」已存在")
     cur = conn.execute(
-        "INSERT INTO projects(name, description) VALUES(?, ?)",
-        (name, body.description.strip()),
+        "INSERT INTO projects(name, description, icon) VALUES(?, ?, ?)",
+        (name, body.description.strip(), (body.icon or "📁").strip()[:8] or "📁"),
     )
     conn.commit()
     return {"ok": True, "id": cur.lastrowid}
@@ -149,6 +195,8 @@ def update_project(project_id: int, body: ProjectUpdate):
     conn = get_db()
     project = _get_project(conn, project_id)
     d = body.model_dump(exclude_none=True)
+    if "icon" in d:
+        d["icon"] = (d["icon"] or "📁").strip()[:8] or "📁"
     if "name" in d:
         new_name = d["name"].strip()
         if not new_name:

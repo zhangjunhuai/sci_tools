@@ -49,6 +49,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,
             description TEXT NOT NULL DEFAULT '',
+            icon TEXT NOT NULL DEFAULT '📁',
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
         );
 
@@ -114,6 +115,9 @@ def init_db():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(papers)").fetchall()]
     if "last_page" not in cols:
         conn.execute("ALTER TABLE papers ADD COLUMN last_page INTEGER")
+    pcols = [r[1] for r in conn.execute("PRAGMA table_info(projects)").fetchall()]
+    if "icon" not in pcols:
+        conn.execute("ALTER TABLE projects ADD COLUMN icon TEXT DEFAULT '📁'")
     # trigram tokenizer: 支持中文子串检索（unicode61 对 CJK 不友好）
     conn.execute(
         "CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5("
