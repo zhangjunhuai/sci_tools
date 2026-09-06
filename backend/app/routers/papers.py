@@ -352,7 +352,8 @@ def get_pdf(paper_id: int):
     path = PDF_DIR / row["pdf_path"]
     if not path.exists():
         raise HTTPException(404, "PDF 文件丢失")
-    return FileResponse(path, media_type="application/pdf", filename=f"{row['title'] or 'paper'}.pdf")
+    return FileResponse(path, media_type="application/pdf", filename=f"{row['title'] or 'paper'}.pdf",
+                        content_disposition_type="inline")
 
 
 @router.post("/{paper_id}/attach")

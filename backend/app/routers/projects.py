@@ -521,7 +521,9 @@ def latex_pdf(project_id: int, item_id: int):
     f = _latex_pdf_path(item_id)
     if not f.exists():
         raise HTTPException(404, "尚未编译，先点「编译」生成 PDF")
-    return FileResponse(f, media_type="application/pdf", filename=f"{r['title'] or 'document'}.pdf")
+    # inline：浏览器内直接预览；「⬇ 下载」按钮靠 <a download> 属性触发下载
+    return FileResponse(f, media_type="application/pdf", filename=f"{r['title'] or 'document'}.pdf",
+                        content_disposition_type="inline")
 
 
 # ---------- 项目 AI 助手 ----------

@@ -228,7 +228,8 @@ export default function ProjectDetail() {
                   <a href={st.pdfUrl || `/api/projects/${id}/items/${it.id}/pdf`} target="_blank" rel="noreferrer">
                     <button className="btn sm">👁 预览 PDF</button>
                   </a>
-                  <a href={st.pdfUrl || `/api/projects/${id}/items/${it.id}/pdf`} download>
+                  <a href={st.pdfUrl || `/api/projects/${id}/items/${it.id}/pdf`}
+                     download={`${displayTitle(it.title) || 'document'}.pdf`}>
                     <button className="btn sm">⬇ 下载</button>
                   </a>
                   <span className="muted" style={{ fontSize: 12.5 }}>
