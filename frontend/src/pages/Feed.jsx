@@ -12,6 +12,7 @@ export default function Feed() {
   const [showDismissed, setShowDismissed] = useState(false)
   const [onlyScored, setOnlyScored] = useState(false)
   const [jobs, setJobs] = useState([])
+  const [summaries, setSummaries] = useState({}) // feedId -> {loading, text, error}
 
   const load = useCallback(async () => {
     const d = await api.get(`/feed?limit=200&hide_dismissed=${!showDismissed}`)
@@ -40,6 +41,26 @@ export default function Feed() {
     if (r.paper_id) nav(`/papers/${r.paper_id}`)
   }
 
+  async function toggleSummary(it) {
+    if (summaries[it.id]?.text || summaries[it.id]?.loading) {
+      setSummaries(prev => {
+        const next = { ...prev }
+        delete next[it.id]
+        return next
+      })
+      return
+    }
+    setSummaries(prev => ({ ...prev, [it.id]: { loading: true } }))
+    try {
+      const r = await api.post('/citations/quick_summary', {
+        item: { title: it.title, abstract: it.abstract },
+      })
+      setSummaries(prev => ({ ...prev, [it.id]: { text: r.summary } }))
+    } catch (e) {
+      setSummaries(prev => ({ ...prev, [it.id]: { error: e.message } }))
+    }
+  }
+
   async function dismiss(it) {
     await api.post(`/feed/${it.id}/dismiss`)
     setItems(prev => prev.filter(x => x.id !== it.id))
@@ -50,7 +71,7 @@ export default function Feed() {
       <div className="page-head">
         <h1>
           arXiv 订阅
-          <Tip text="按设置页里配置的分类+关键词抓取 arXiv 新论文，AI 按你的研究方向打相关度分（0-10）排序；点「加入文献库」自动下载 PDF 入库。" />
+          <Tip text="按设置页里配置的分类+关键词抓取 arXiv 新论文，AI 按你的研究方向打相关度分（0-10）排序；点「加入文献库」自动下载 PDF 入库。点击论文标题可查看 AI 中文速览。" />
         </h1>
         <div className="row">
           <button className="btn" onClick={() => setShowDismissed(s => !s)}>
@@ -91,13 +112,21 @@ export default function Feed() {
               const cls = sc >= 8 ? 'high' : sc >= 6 ? 'mid' : 'low'
               return <span className={`score-badge ${cls}`} title="AI 相关度评分（0-10）">{sc.toFixed(0)}</span>
             })()}
-            <strong>{it.title}</strong>
+            <strong className="feed-title clickable"
+              title="点击查看 AI 中文速览"
+              onClick={() => toggleSummary(it)}>{it.title}</strong>
             <div className="muted">
               {it.authors?.slice(0, 5).join(', ')}{it.authors?.length > 5 ? ' et al.' : ''}
               {' · '}{it.primary_category}{' · '}{it.arxiv_id}
               {it.published ? ` · ${it.published.slice(0, 10)}` : ''}
             </div>
-            <div className="muted" style={{ marginTop: 6 }}>{it.abstract?.slice(0, 220)}{it.abstract?.length > 220 ? '…' : ''}</div>
+            {summaries[it.id] && (
+              <div className="reason" style={{ marginTop: 6 }}>
+                {summaries[it.id].loading && <span className="muted">AI 速览生成中…</span>}
+                {summaries[it.id].text && <><Icon name="zap" size={13} /> {summaries[it.id].text}</>}
+                {summaries[it.id].error && <span style={{ color: 'var(--danger)' }}>{summaries[it.id].error}</span>}
+              </div>
+            )}
             {it.relevance_reason && <div className="reason"><Icon name="bot" size={13} /> {it.relevance_reason}</div>}
             <div className="row mt" style={{ marginTop: 10 }}>
               {it.added_paper_id ? (

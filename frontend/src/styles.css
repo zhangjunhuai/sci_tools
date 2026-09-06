@@ -602,3 +602,7 @@ a { color: var(--accent); }
 .nav-theme-btn:hover { background: var(--nav-hover); color: #fff; }
 .layout.nav-collapsed .nav-theme-btn { justify-content: center; padding: 9px 0; }
 .nav-icon { display: inline-flex; }
+
+/* Feed 标题可点击查看 AI 速览 */
+.feed-title { cursor: pointer; transition: color 0.15s; }
+.feed-title:hover { color: var(--accent); }
