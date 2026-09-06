@@ -133,8 +133,8 @@ export default function Feed() {
     <div>
       <div className="page-head">
         <h1>
-          arXiv 订阅
-          <Tip text="按设置页里配置的分类+关键词抓取 arXiv 新论文，AI 按你的研究方向打相关度分（0-10）排序；点「加入文献库」自动下载 PDF 入库。点击论文标题可查看 AI 中文速览。" />
+          订阅
+          <Tip text="两条订阅线：「arXiv 推荐」按设置页的分类+关键词抓取预印本并打相关度分；「期刊订阅」从 Crossref 追踪正式期刊的最新论文。点「加入文献库」自动入库，点击标题可查看 AI 中文速览。" />
         </h1>
         <div className="row">
           <button className="btn" onClick={() => setShowDismissed(s => !s)}>

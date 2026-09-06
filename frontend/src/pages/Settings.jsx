@@ -130,7 +130,7 @@ export default function Settings() {
       </div>
 
       <div className="card mb16">
-        <strong className="mb16">arXiv 订阅</strong>
+        <strong className="mb16">arXiv 抓取配置</strong>
         <div className="form-row">
           <label>关注分类（逗号分隔）</label>
           <input type="text" value={form.arxiv_categories || ''} onChange={e => set('arxiv_categories', e.target.value)} />

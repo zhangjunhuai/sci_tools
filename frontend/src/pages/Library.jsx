@@ -361,9 +361,9 @@ export default function Library() {
         </div>
       ) : papers.items.length === 0 ? (
             <EmptyState icon="book" title="文献库还是空的"
-          hint="上传 PDF、粘贴 arXiv 链接，或到「arXiv 订阅」页看看新论文">
+          hint="上传 PDF、粘贴 arXiv 链接，或到「订阅」页看看新论文">
           <button className="btn primary" onClick={() => fileInput.current.click()}><Icon name="plus" /> 添加第一篇 PDF</button>
-          <Link to="/feed"><button className="btn">看看 arXiv 订阅</button></Link>
+          <Link to="/feed"><button className="btn">看看订阅页</button></Link>
         </EmptyState>
           ) : (
             <div className="paper-list">

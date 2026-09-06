@@ -5,7 +5,7 @@ import Icon from './components/Icon'
 const NAVS = [
   { to: '/', label: '文献库', icon: 'book', end: true },
   { to: '/projects', label: '项目', icon: 'folder' },
-  { to: '/feed', label: 'arXiv 订阅', icon: 'rss' },
+  { to: '/feed', label: '订阅', icon: 'rss' },
   { to: '/graph', label: '知识图谱', icon: 'network' },
   { to: '/settings', label: '设置', icon: 'settings' },
 ]
