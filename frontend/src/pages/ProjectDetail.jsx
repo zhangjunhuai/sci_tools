@@ -45,6 +45,7 @@ export default function ProjectDetail() {
   const [latexState, setLatexState] = useState({}) // item_id -> {status: compiling|ok|error, error?}
   const [uploading, setUploading] = useState(false)
   const [collapsed, setCollapsed] = useState(new Set()) // 折叠的树分组
+  const [sideHidden, setSideHidden] = useState(false) // 收起整个左侧栏
   // VSCode 式选中：{kind: overview|paper|note|result|latex|ai, id?}
   const [sel, setSel] = useState({ kind: 'overview', id: null })
   const [draft, setDraft] = useState(null) // 选中条目的编辑草稿 {title, content}
@@ -210,7 +211,14 @@ export default function ProjectDetail() {
   }
 
   return (
-    <div className="proj-workspace">
+    <div className={`proj-workspace ${sideHidden ? 'side-hidden' : ''}`}>
+      {/* 侧栏收起后显示的竖条开关 */}
+      <button className={`proj-side-toggle ${sideHidden ? 'collapsed' : ''}`}
+        onClick={() => setSideHidden(v => !v)}
+        title={sideHidden ? '展开侧栏' : '收起侧栏'}>
+        {sideHidden ? '»' : '«'}
+      </button>
+
       {/* ============ 左侧资源树 ============ */}
       <aside className="proj-side">
         <div className="proj-side-head">
