@@ -11,6 +11,9 @@ import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import './styles.css'
 
+// 首屏前应用主题，避免深色模式闪白
+document.documentElement.dataset.theme = localStorage.getItem('theme') || 'light'
+
 const router = createHashRouter([
   {
     path: '/',

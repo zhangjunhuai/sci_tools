@@ -5,6 +5,7 @@ import PdfViewer from '../components/PdfViewer'
 import AiPanel from '../components/AiPanel'
 import Tip from '../components/Tip'
 import JournalBadge from '../components/JournalBadge'
+import Icon from '../components/Icon'
 
 const STATUS_LABEL = { unread: '未读', reading: '在读', read: '已读' }
 
@@ -97,10 +98,10 @@ export default function PaperDetail() {
             {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
           <button className="btn" onClick={() => patch({ starred: !paper.starred })}>
-            {paper.starred ? '★ 已星标' : '☆ 星标'}
+            {paper.starred ? '★ 已星标' : '<Icon name="star" size={13} filled={paper.starred} /> 星标'}
           </button>
           <button className="btn" onClick={copyBibtex}>BibTeX</button>
-          <button className="btn danger" onClick={delPaper}>删除</button>
+          <button className="btn danger" onClick={delPaper}><Icon name="trash" size={13} /> 删除</button>
         </div>
       </div>
 
@@ -130,8 +131,8 @@ export default function PaperDetail() {
 
         <div className="side-pane">
           <div className="card">
-            <strong>
-              AI 摘要
+            <strong className="row" style={{ gap: 5 }}>
+              <Icon name="zap" size={14} /> AI 摘要
               <Tip text="入库后台处理时自动生成；也可在下方 AI 助手里点「生成结构化摘要」手动生成。" />
             </strong>
             {paper.ai_summary ? (
@@ -149,7 +150,7 @@ export default function PaperDetail() {
           <EditMetaCard paper={paper} onSaved={p => setPaper(prev => ({ ...prev, ...p }))} />
 
           <div className="card">
-            <strong className="mb8">批注 / 高亮（{annotations.length}）</strong>
+            <strong className="row mb8" style={{ gap: 5 }}><Icon name="pen" size={14} /> 批注 / 高亮（{annotations.length}）</strong>
             {annotations.length === 0 && <div className="muted">在 PDF 里选中文字即可高亮。</div>}
             {annotations.map(a => (
               <div key={a.id} className="ann-item">
@@ -279,14 +280,14 @@ function NotesCard({ paper, onSaved }) {
   return (
     <div className="card">
       <div className="row spread">
-        <strong>
-          阅读笔记
+        <strong className="row" style={{ gap: 5 }}>
+          <Icon name="pen" size={14} /> 阅读笔记
           <Tip text="支持 Markdown；用 [[论文标题]] 可双链到库里其他论文（点击跳转）。「AI 整理草稿」把本文的高亮和批注整理成结构化笔记追加到这里。" />
         </strong>
         {!editing && (
           <div className="row">
             <button className="btn sm" disabled={drafting} onClick={genDraft}>
-              {drafting ? '整理中…' : '✨ AI 整理草稿'}
+              <>{drafting ? '整理中…' : <><Icon name="zap" size={13} /> AI 整理草稿</>}</>
             </button>
             <button className="btn sm" onClick={() => setEditing(true)}>编辑</button>
           </div>
@@ -365,8 +366,8 @@ function CitationsCard({ paper, nav }) {
   return (
     <div className="card">
       <div className="row spread mb8">
-        <strong>
-          引文网络
+        <strong className="row" style={{ gap: 5 }}>
+          <Icon name="network" size={14} /> 引文网络
           <Tip text="查这篇论文引用了谁、被谁引用（数据来自 Semantic Scholar）。点文献标题可看 AI 速览；「折叠」可收起列表。" />
         </strong>
         <div className="row">
@@ -453,8 +454,8 @@ function RelatedCard({ paper, nav }) {
   return (
     <div className="card">
       <div className="row spread mb8">
-        <strong>
-          相关文献推荐
+        <strong className="row" style={{ gap: 5 }}>
+          <Icon name="zap" size={14} /> 相关文献推荐
           <Tip text="基于本文在 Semantic Scholar 上的相似论文推荐，库内已有的会直接标出。" />
         </strong>
         <div className="row">

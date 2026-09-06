@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api, displayTitle } from '../api'
 import Tip from '../components/Tip'
 import CompareModal from '../components/CompareModal'
 import JournalBadge from '../components/JournalBadge'
+import Icon from '../components/Icon'
+import EmptyState from '../components/EmptyState'
 
 const STATUS_LABEL = { unread: '未读', reading: '在读', read: '已读' }
 const ZONE_LABEL = { 1: '1 区', 2: '2 区', 3: '3 区', 4: '4 区' }
@@ -136,6 +138,11 @@ export default function Library() {
     })
   }
 
+  async function toggleStar(p) {
+    await api.patch(`/papers/${p.id}`, { starred: !p.starred })
+    setPapers(prev => ({ ...prev, items: prev.items.map(x => x.id === p.id ? { ...x, starred: !x.starred } : x) }))
+  }
+
   function toggleCheck(id) {
     setChecked(prev => {
       const next = new Set(prev)
@@ -198,14 +205,14 @@ export default function Library() {
           <input ref={zoteroInput} type="file" accept=".json" hidden
             onChange={e => e.target.files[0] && handleZotero(e.target.files[0])} />
           <button className="btn" disabled={importing} onClick={() => zoteroInput.current.click()}>
-            {importing ? '导入中…' : '导入 Zotero'}
+            <Icon name="upload" /> {importing ? '导入中…' : '导入 Zotero'}
           </button>
           <button className="btn" onClick={exportBibtex}>
-            {checked.size > 0 ? `导出 BibTeX（已选 ${checked.size}）` : '导出 BibTeX'}
+            <Icon name="download" /> {checked.size > 0 ? `导出 BibTeX（已选 ${checked.size}）` : '导出 BibTeX'}
           </button>
           <input ref={fileInput} type="file" accept=".pdf" multiple hidden
             onChange={e => handleFiles([...e.target.files])} />
-          <button className="btn primary" onClick={() => fileInput.current.click()}>＋ 添加 PDF</button>
+          <button className="btn primary" onClick={() => fileInput.current.click()}><Icon name="plus" /> 添加 PDF</button>
         </div>
       </div>
 
@@ -337,13 +344,27 @@ export default function Library() {
               ⚖ AI 对比{checked.size >= 2 && checked.size <= 8 ? `（${checked.size} 篇）` : ''}
             </button>
             <button className="btn sm danger" disabled={checked.size === 0 || deleting} onClick={batchDelete}>
-              {deleting ? '删除中…' : '🗑 批量删除'}
+              {deleting ? '删除中…' : <><Icon name="trash" /> 批量删除</>}
             </button>
             <button className="btn sm" onClick={() => setChecked(new Set())} disabled={checked.size === 0}>清空选择</button>
           </div>
 
-          {!papers ? <div className="loading">加载中…</div> : papers.items.length === 0 ? (
-            <div className="empty">还没有文献。上传 PDF、从 Zotero 导入，或到「arXiv 订阅」页看看新论文。</div>
+          {!papers ? (
+        <div>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="skel-card">
+              <div className="skel-line head w60" />
+              <div className="skel-line w40" />
+              <div className="skel-line w90" />
+            </div>
+          ))}
+        </div>
+      ) : papers.items.length === 0 ? (
+            <EmptyState icon="book" title="文献库还是空的"
+          hint="上传 PDF、粘贴 arXiv 链接，或到「arXiv 订阅」页看看新论文">
+          <button className="btn primary" onClick={() => fileInput.current.click()}><Icon name="plus" /> 添加第一篇 PDF</button>
+          <Link to="/feed"><button className="btn">看看 arXiv 订阅</button></Link>
+        </EmptyState>
           ) : (
             <div className="paper-list">
               {papers.items.map(p => (
@@ -352,7 +373,7 @@ export default function Library() {
                     onChange={() => toggleCheck(p.id)}
                     style={{ marginTop: 16 }} title="勾选后可批量导出 BibTeX" />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <PaperItem p={p} nav={nav} />
+                    <PaperItem p={p} nav={nav} onStar={toggleStar} />
                   </div>
                 </div>
               ))}
@@ -376,18 +397,18 @@ function FilterRow({ checked, onChange, label, count }) {
   )
 }
 
-function PaperItem({ p, nav }) {
+function PaperItem({ p, nav, onStar }) {
   return (
     <div className="paper-item" onClick={() => nav(`/papers/${p.id}`)}>
       <div className="p-title">
         <span className={`status-dot status-${p.status}`} />
-        {p.starred ? <span className="star">★ </span> : null}
         {displayTitle(p.title)}
       </div>
       <div className="p-meta">
-        {p.authors?.slice(0, 4).join(', ')}{p.authors?.length > 4 ? ' et al.' : ''}
-        {p.year ? ` · ${p.year}` : ''}{p.venue ? ` · ${p.venue}` : ''}
-        {p.has_pdf ? '' : ' · ⚠ 无 PDF'}
+        <span>{p.authors?.slice(0, 4).join(', ')}{p.authors?.length > 4 ? ' et al.' : ''}</span>
+        {p.year && <span className="year-badge">{p.year}</span>}
+        {p.venue && <span className="venue-chip">{p.venue}</span>}
+        {!p.has_pdf && <span className="muted"><Icon name="alert" size={13} /> 无 PDF</span>}
       </div>
       {p.journal_info && <JournalBadge info={p.journal_info} />}
       {p.abstract && <div className="p-abstract">{p.abstract}</div>}
@@ -395,6 +416,11 @@ function PaperItem({ p, nav }) {
         {(p.projects || []).map(pr => <span key={pr} className="tag accent">{pr}</span>)}
         {(p.tags || []).map(t => <span key={t} className="tag">{t}</span>)}
       </div>
+      <button className={`quick-star ${p.starred ? 'starred' : ''}`}
+        title={p.starred ? '取消星标' : '加星标'}
+        onClick={e => { e.stopPropagation(); onStar(p) }}>
+        <Icon name="star" size={14} filled={p.starred} />
+      </button>
     </div>
   )
 }

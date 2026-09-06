@@ -4,6 +4,7 @@ import { api, displayTitle } from '../api'
 import Tip from '../components/Tip'
 import JournalBadge from '../components/JournalBadge'
 import ProjectAiPanel from '../components/ProjectAiPanel'
+import Icon from '../components/Icon'
 
 const TYPE_LABEL = { note: '📝 笔记', result: '🧪 实验记录', latex: '📄 LaTeX 文档' }
 
@@ -201,27 +202,27 @@ export default function ProjectDetail() {
   const groupItems = { papers: proj.papers, notes, results, latex: latexDocs }
 
   const groups = [
-    { key: 'papers', label: '文献', icon: '📄', count: proj.papers.length,
+    { key: 'papers', label: '文献', icon: 'fileText', count: proj.papers.length,
       onAdd: () => setPickerOpen(true) },
-    { key: 'notes', label: '笔记', icon: '📝', count: notes.length, onAdd: () => newItem('note') },
-    { key: 'results', label: '实验记录', icon: '🧪', count: results.length, onAdd: () => newItem('result') },
-    { key: 'latex', label: 'LaTeX 文档', icon: '📊', count: latexDocs.length, onAdd: () => newItem('latex') },
+    { key: 'notes', label: '笔记', icon: 'pen', count: notes.length, onAdd: () => newItem('note') },
+    { key: 'results', label: '实验记录', icon: 'flask', count: results.length, onAdd: () => newItem('result') },
+    { key: 'latex', label: 'LaTeX 文档', icon: 'fileCode', count: latexDocs.length, onAdd: () => newItem('latex') },
   ]
 
   function treeItemsFor(g) {
     if (g.key === 'papers') {
       return proj.papers.map(p => ({
-        id: p.id, kind: 'paper', icon: '📄', title: displayTitle(p.title),
+        id: p.id, kind: 'paper', icon: 'fileText', title: displayTitle(p.title),
         badge: p.has_pdf ? null : '⚠',
       }))
     }
     return groupItems[g.key].map(it => ({
-      id: it.id, kind: it.item_type, icon: it.item_type === 'latex' ? '📊' : g.icon,
+      id: it.id, kind: it.item_type, icon: it.item_type === 'latex' ? 'fileCode' : g.icon,
       title: it.title || '（无标题）',
       badge: it.item_type === 'latex'
-        ? (latexState[it.id]?.status === 'error' ? '🔴' : (it.pdf_ready || latexState[it.id]?.status === 'ok') ? '🟢' : null)
+        ? (latexState[it.id]?.status === 'error' ? 'error' : (it.pdf_ready || latexState[it.id]?.status === 'ok') ? 'ok' : null)
         : null,
-      extra: it.item_type === 'latex' && it.archive ? `📦${it.archive.file_count}` : null,
+      extra: it.item_type === 'latex' && it.archive ? `+${it.archive.file_count}` : null,
     }))
   }
 
@@ -241,7 +242,7 @@ export default function ProjectDetail() {
           {proj.description && <div className="proj-side-desc">{proj.description}</div>}
           <div className="row" style={{ marginTop: 8 }}>
             <button className="btn sm" onClick={startEditMeta}>编辑</button>
-            <button className="btn sm danger" onClick={deleteProject}>🗑</button>
+            <button className="btn sm danger" onClick={deleteProject} title="删除项目"><Icon name="trash" size={13} /></button>
           </div>
         </div>
 
@@ -249,7 +250,7 @@ export default function ProjectDetail() {
           {groups.map(g => (
             <div key={g.key}>
               <div className="ptree-group-head" onClick={() => toggleGroup(g.key)}>
-                <span>{collapsed.has(g.key) ? '▸' : '▾'} {g.icon} {g.label} <span className="muted">{g.count}</span></span>
+                <span className="row" style={{ gap: 5 }}>{collapsed.has(g.key) ? '▸' : '▾'} <Icon name={g.icon} size={13} /> {g.label} <span className="muted">{g.count}</span></span>
                 <span className="ptree-add" title={`新建${g.label}`}
                   onClick={e => { e.stopPropagation(); g.onAdd() }}>＋</span>
               </div>
@@ -258,10 +259,10 @@ export default function ProjectDetail() {
                   className={`ptree-item ${sel.kind === it.kind && sel.id === it.id ? 'active' : ''}`}
                   onClick={() => setSel({ kind: it.kind, id: it.id })}
                   title={it.title}>
-                  <span className="ptree-icon">{it.icon}</span>
+                  <span className="ptree-icon"><Icon name={it.icon} size={13} /></span>
                   <span className="ptree-label">{it.title}</span>
                   {it.extra && <span className="ptree-extra">{it.extra}</span>}
-                  {it.badge && <span className="ptree-badge">{it.badge}</span>}
+                  {it.badge && <span className={`ptree-badge dot-${it.badge}`} />}
                   {it.kind !== 'paper' && (
                     <span className="ptree-x" title="删除"
                       onClick={e => { e.stopPropagation(); deleteItem(groupItems[g.key].find(x => x.id === it.id)) }}>✕</span>
@@ -275,11 +276,11 @@ export default function ProjectDetail() {
           ))}
 
           <div className="ptree-group-head" style={{ marginTop: 10 }}>
-            <span>🤖 AI 助手</span>
+            <span className="row" style={{ gap: 5 }}><Icon name="bot" size={13} /> AI 助手</span>
           </div>
           <div className={`ptree-item ${sel.kind === 'ai' ? 'active' : ''}`}
             onClick={() => setSel({ kind: 'ai', id: null })}>
-            <span className="ptree-icon">🤖</span>
+            <span className="ptree-icon"><Icon name="bot" size={13} /></span>
             <span className="ptree-label">与项目对话</span>
           </div>
         </div>
@@ -290,7 +291,7 @@ export default function ProjectDetail() {
             onChange={e => { const f = e.target.files[0]; if (f) importArchive(f); e.target.value = '' }} />
           <button className="btn sm" style={{ width: '100%' }} disabled={uploading}
             onClick={() => latexInputRef.current?.click()}>
-            {uploading ? '导入中…' : '📦 导入 LaTeX 压缩包'}
+            <><Icon name="package" size={14} /> {uploading ? '导入中…' : '导入 LaTeX 压缩包'}</>
           </button>
         </div>
       </aside>
@@ -356,10 +357,10 @@ function OverviewPanel({ proj, activities, editingMeta, metaForm, setMetaForm, s
         <p className="muted" style={{ marginTop: -6 }}>无描述。</p>
       )}
       <div className="row mb16" style={{ flexWrap: 'wrap', gap: 8 }}>
-        <span className="tag accent">📄 {proj.papers.length} 篇文献</span>
-        <span className="tag">📝 {proj.items.filter(i => i.item_type === 'note').length} 条笔记</span>
-        <span className="tag">🧪 {proj.items.filter(i => i.item_type === 'result').length} 条实验记录</span>
-        <span className="tag">📊 {proj.items.filter(i => i.item_type === 'latex').length} 个 LaTeX 文档</span>
+        <span className="tag accent"><Icon name="fileText" size={13} /> {proj.papers.length} 篇文献</span>
+        <span className="tag"><Icon name="pen" size={13} /> {proj.items.filter(i => i.item_type === 'note').length} 条笔记</span>
+        <span className="tag"><Icon name="flask" size={13} /> {proj.items.filter(i => i.item_type === 'result').length} 条实验记录</span>
+        <span className="tag"><Icon name="fileCode" size={13} /> {proj.items.filter(i => i.item_type === 'latex').length} 个 LaTeX 文档</span>
       </div>
       {!editingMeta ? (
         <button className="btn sm" onClick={startEditMeta}>编辑项目信息</button>
@@ -378,29 +379,29 @@ function OverviewPanel({ proj, activities, editingMeta, metaForm, setMetaForm, s
 
       {/* 快速开始：按当前状态给出下一步引导 */}
       <div className="proj-quick mb16">
-        <strong>🚀 快速开始</strong>
+        <strong><Icon name="zap" size={15} /> 快速开始</strong>
         <div className="proj-quick-row">
           {proj.papers.length === 0 && (
             <button className="proj-quick-btn" onClick={() => onQuickStart('add-papers')}>
-              <span className="proj-quick-ico">📄</span>
+              <span className="proj-quick-ico"><Icon name="fileText" size={20} /></span>
               <span><strong>添加文献</strong><br />从文献库勾选与本主题相关的论文</span>
             </button>
           )}
           {proj.items.filter(i => ['note', 'result'].includes(i.item_type)).length === 0 && (
             <button className="proj-quick-btn" onClick={() => onQuickStart('new-note')}>
-              <span className="proj-quick-ico">📝</span>
+              <span className="proj-quick-ico"><Icon name="pen" size={20} /></span>
               <span><strong>写一条笔记</strong><br />记下研究想法或文献综述片段</span>
             </button>
           )}
           {proj.items.filter(i => i.item_type === 'latex').length === 0 && (
             <button className="proj-quick-btn" onClick={() => onQuickStart('new-latex')}>
-              <span className="proj-quick-ico">📊</span>
+              <span className="proj-quick-ico"><Icon name="fileCode" size={20} /></span>
               <span><strong>建 LaTeX 文档</strong><br />写周报/报告并一键编译 PDF</span>
             </button>
           )}
           {proj.items.some(i => i.item_type === 'latex') && proj.papers.length > 0 && (
             <button className="proj-quick-btn" onClick={() => onQuickStart('ai')}>
-              <span className="proj-quick-ico">🤖</span>
+              <span className="proj-quick-ico"><Icon name="bot" size={20} /></span>
               <span><strong>问问 AI</strong><br />基于项目内容做进展总结</span>
             </button>
           )}
@@ -410,7 +411,7 @@ function OverviewPanel({ proj, activities, editingMeta, metaForm, setMetaForm, s
       {/* 最近活动 */}
       {activities.length > 0 && (
         <div className="proj-act-mini">
-          <strong>🕐 最近活动</strong>
+          <strong><Icon name="clock" size={14} /> 最近活动</strong>
           {activities.slice(0, 5).map((e, i) => (
             <div key={i} className="pact-row" style={{ padding: '8px 0' }}>
               <div style={{ flex: 1, minWidth: 0, fontSize: 13.5 }}>
@@ -425,7 +426,7 @@ function OverviewPanel({ proj, activities, editingMeta, metaForm, setMetaForm, s
       )}
 
       <div style={{ marginTop: 20 }}>
-        <button className="btn sm danger" onClick={deleteProject}>🗑 删除项目</button>
+        <button className="btn sm danger" onClick={deleteProject}><Icon name="trash" size={13} /> 删除项目</button>
       </div>
     </div>
   )
@@ -473,16 +474,16 @@ function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile
           {isLatex && (
             <>
               <button className="btn sm primary" disabled={st.status === 'compiling'} onClick={onCompile}>
-                {st.status === 'compiling' ? '编译中…（可能需几十秒）' : '▶ 编译'}
+                <Icon name="play" size={13} /> {st.status === 'compiling' ? '编译中…' : '编译'}
               </button>
               {(st.status === 'ok' || item.pdf_ready) && (
                 <>
                   <a href={st.pdfUrl || `/api/projects/${projectId}/items/${item.id}/pdf`} target="_blank" rel="noreferrer">
-                    <button className="btn sm">👁 预览 PDF</button>
+                    <button className="btn sm"><Icon name="eye" size={13} /> 预览 PDF</button>
                   </a>
                   <a href={st.pdfUrl || `/api/projects/${projectId}/items/${item.id}/pdf`}
                      download={`${displayTitle(draft?.title || item.title) || 'document'}.pdf`}>
-                    <button className="btn sm">⬇ 下载</button>
+                    <button className="btn sm"><Icon name="download" size={13} /> 下载</button>
                   </a>
                   <span className="muted" style={{ fontSize: 12.5 }}>编译于 {st.compiledAt || item.compiled_at}</span>
                 </>
@@ -490,9 +491,9 @@ function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile
             </>
           )}
           <button className="btn sm" disabled={saving || !draft} onClick={onSave}>
-            {saving ? '保存中…' : '💾 保存'}
+            <Icon name="save" size={13} /> {saving ? '保存中…' : '保存'}
           </button>
-          <button className="btn sm danger" onClick={onDelete}>🗑 删除</button>
+          <button className="btn sm danger" onClick={onDelete}><Icon name="trash" size={13} /> 删除</button>
         </div>
       </div>
 

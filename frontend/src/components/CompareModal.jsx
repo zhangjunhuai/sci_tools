@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, displayTitle } from '../api'
 import Tip from './Tip'
+import Icon from './Icon'
 
 const COLS = [
   ['method', '方法'],
@@ -60,16 +61,16 @@ export default function CompareModal({ ids, onClose }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal compare-modal" onClick={e => e.stopPropagation()}>
         <div className="row spread mb8">
-          <h2 style={{ margin: 0 }}>
-            ⚖ AI 跨文献对比
+          <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="scale" size={17} /> AI 跨文献对比
             <Tip text="AI 逐篇提取方法 / 数据集 / 核心结论 / 局限并汇总成表；表格下方有整体对比评述。" />
           </h2>
           <div className="row">
             {rows && (
-              <button className="btn sm" onClick={toMarkdown}>{copied ? '✓ 已复制' : '复制 Markdown'}</button>
+              <button className="btn sm" onClick={toMarkdown}><><Icon name={copied ? "save" : "copy"} size={13} /> {copied ? '已复制' : '复制 Markdown'}</></button>
             )}
             <button className="btn sm" disabled={loading} onClick={() => setNonce(n => n + 1)}>重新生成</button>
-            <button className="btn sm" onClick={onClose}>✕ 关闭</button>
+            <button className="btn sm" onClick={onClose}><Icon name="x" size={13} /> 关闭</button>
           </div>
         </div>
 

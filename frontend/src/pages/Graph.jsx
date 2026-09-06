@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import Tip from '../components/Tip'
+import Icon from '../components/Icon'
 
 const STATUS_COLOR = { unread: '#94a3b8', reading: '#f59e0b', read: '#22c55e' }
 
@@ -119,6 +120,15 @@ export default function Graph() {
     const ctx = canvas.getContext('2d')
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, W, H)
+    const dark = document.documentElement.dataset.theme === 'dark'
+    // 极淡点阵网格（氛围层）
+    ctx.fillStyle = dark ? 'rgba(148,163,184,0.14)' : 'rgba(100,116,139,0.16)'
+    const gap = 26
+    for (let gx = gap / 2; gx < W; gx += gap) {
+      for (let gy = gap / 2; gy < H; gy += gap) {
+        ctx.fillRect(gx, gy, 1.4, 1.4)
+      }
+    }
     const { nodes, edges, tx, ty, scale } = s
     const cx = W / 2 + tx, cy = H / 2 + ty
 
@@ -145,7 +155,7 @@ export default function Graph() {
       }
       if (hovered || scale > 1.4) {
         ctx.font = '12px system-ui, sans-serif'
-        ctx.fillStyle = '#334155'
+        ctx.fillStyle = dark ? '#a8b3c2' : '#334155'
         const t = nd.title.length > 28 ? nd.title.slice(0, 28) + '…' : nd.title
         ctx.fillText(t, x + r + 4, y + 4)
       }
@@ -228,7 +238,13 @@ export default function Graph() {
 
       {error && <div className="err-msg">{error}</div>}
       {loading && <div className="loading">计算图谱中…</div>}
-      {!loading && nodes.length === 0 && <div className="empty">文献库还是空的。</div>}
+      {!loading && nodes.length === 0 && (
+          <div className="empty-state" style={{ paddingTop: 80 }}>
+            <div className="empty-ico"><Icon name="network" size={30} /></div>
+            <div className="empty-title">文献库还是空的</div>
+            <div className="muted" style={{ fontSize: 13.5 }}>入库几篇文献后再来生成图谱</div>
+          </div>
+        )}
 
       <div ref={wrapRef} style={{ flex: 1, position: 'relative', border: '1px solid var(--border)', borderRadius: 'var(--radius)', background: 'var(--panel)', overflow: 'hidden' }}>
         <canvas
@@ -241,6 +257,14 @@ export default function Graph() {
           onClick={onClick}
           onWheel={onWheel}
         />
+        <div className="graph-legend">
+          <span><span className="dot" style={{ background: '#94a3b8' }} />未读</span>
+          <span><span className="dot" style={{ background: '#f59e0b' }} />在读</span>
+          <span><span className="dot" style={{ background: '#22c55e' }} />已读</span>
+          <span><span className="dot" style={{ background: '#2563eb', borderRadius: 2, height: 2, marginTop: 5 }} />双链</span>
+          <span><span className="dot" style={{ background: '#94a3b8', borderRadius: 2, height: 2, marginTop: 5 }} />相似</span>
+          <span>★ 星标</span>
+        </div>
       </div>
     </div>
   )

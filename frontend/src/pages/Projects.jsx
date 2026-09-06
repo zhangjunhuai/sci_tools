@@ -2,16 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import Tip from '../components/Tip'
+import Icon from '../components/Icon'
 
 const PROJECT_ICONS = ['📁', '🤖', '🧠', '🧪', '📊', '🧩', '🧭', '🔬', '💡', '🚀', '🌐', '⚙️']
 // 活动类型 → 图标与配色
 const ACT_STYLE = {
-  result: { icon: '🧪', cls: 'green' },
-  note: { icon: '✍️', cls: 'yellow' },
-  latex: { icon: '📊', cls: 'purple' },
-  paper: { icon: '📄', cls: 'blue' },
-  update: { icon: '✏️', cls: 'gray' },
-  project: { icon: '🎉', cls: 'orange' },
+  result: { icon: 'flask', cls: 'green' },
+  note: { icon: 'pen', cls: 'yellow' },
+  latex: { icon: 'fileCode', cls: 'purple' },
+  paper: { icon: 'fileText', cls: 'blue' },
+  update: { icon: 'pen', cls: 'gray' },
+  project: { icon: 'folder', cls: 'orange' },
 }
 
 function relTime(s) {
@@ -82,12 +83,12 @@ export default function Projects() {
         <h1>项目</h1>
         <div className="row">
           <div className="proj-search">
-            <span className="proj-search-ico">🔍</span>
+            <span className="proj-search-ico"><Icon name="search" size={14} /></span>
             <input ref={searchRef} placeholder="搜索项目名称、描述或关键词…"
               value={q} onChange={e => setQ(e.target.value)} />
             <span className="proj-search-kbd">⌘ K</span>
           </div>
-          <button className="btn primary" onClick={() => setModal({ mode: 'create' })}>＋ 新建项目</button>
+          <button className="btn primary" onClick={() => setModal({ mode: 'create' })}><Icon name="plus" /> 新建项目</button>
         </div>
       </div>
 
@@ -124,7 +125,7 @@ export default function Projects() {
             const st = ACT_STYLE[e.kind] || ACT_STYLE.update
             return (
               <div key={i} className="pact-row">
-                <div className={`pact-icon ${st.cls}`}>{st.icon}</div>
+                <div className={`pact-icon ${st.cls}`}><Icon name={st.icon} size={16} /></div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14 }}>
                     <strong>{e.project_name}</strong>
@@ -158,11 +159,11 @@ function ProjectCard({ p, onEdit, onDelete }) {
       <div className="row spread">
         <div className="proj-avatar">{p.icon || '📁'}</div>
         <div className="proj-menu">
-          <button className="btn sm" onClick={() => setMenuOpen(v => !v)} title="更多操作">⋯</button>
+          <button className="btn sm" onClick={() => setMenuOpen(v => !v)} title="更多操作"><Icon name="ellipsis" /></button>
           {menuOpen && (
             <div className="proj-menu-pop">
-              <button onClick={() => { setMenuOpen(false); onEdit() }}>✏️ 编辑信息</button>
-              <button className="danger" onClick={() => { setMenuOpen(false); onDelete(p) }}>🗑 删除项目</button>
+              <button onClick={() => { setMenuOpen(false); onEdit() }}><Icon name="pen" size={13} /> 编辑信息</button>
+              <button className="danger" onClick={() => { setMenuOpen(false); onDelete(p) }}><Icon name="trash" size={13} /> 删除项目</button>
             </div>
           )}
         </div>
@@ -170,12 +171,12 @@ function ProjectCard({ p, onEdit, onDelete }) {
       <div className="proj-card-title" title={p.name}>{p.name}</div>
       <div className="muted proj-card-desc">{p.description || '（无描述）'}</div>
       <div className="proj-card-counts">
-        <span>📄 {p.paper_count} 篇文献</span>
-        <span>✍️ {p.note_count} 条笔记 / 实验</span>
+        <span className="row" style={{ gap: 5 }}><Icon name="fileText" size={14} /> {p.paper_count} 篇文献</span>
+        <span className="row" style={{ gap: 5 }}><Icon name="pen" size={14} /> {p.note_count} 条笔记 / 实验</span>
       </div>
       <div className="row spread" style={{ marginTop: 'auto', paddingTop: 12 }}>
-        <span className="muted" style={{ fontSize: 12.5 }}>🕐 最近更新 {relTime(p.last_activity || p.created_at)}</span>
-        <Link to={`/projects/${p.id}`} className="btn sm proj-enter">进入项目 →</Link>
+        <span className="muted row" style={{ fontSize: 12.5, gap: 4 }}><Icon name="clock" size={13} /> 最近更新 {relTime(p.last_activity || p.created_at)}</span>
+        <Link to={`/projects/${p.id}`} className="btn sm proj-enter">进入项目 <Icon name="arrowRight" size={13} /></Link>
       </div>
     </div>
   )

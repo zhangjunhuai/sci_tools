@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import Tip from './Tip'
+import Icon from './Icon'
 
 const CAT_LABEL = { papers: '文献', notes: '笔记', results: '实验记录' }
 
@@ -76,11 +77,11 @@ export default function ProjectAiPanel({ project }) {
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
       <div className="row spread mb8">
-        <strong>🤖 项目 AI 助手
+        <strong><Icon name="bot" size={15} /> 项目 AI 助手
           <Tip text="基于本项目收录的文献摘要、笔记和实验记录回答问题。可通过下方开关控制 AI 能看到哪些资料、勾选具体文献缩小范围。" />
         </strong>
         <button className="btn sm" disabled={busy || estTokens === 0} onClick={() => ask('总结一下这个项目目前的进展：研究主题、已读文献要点、笔记想法和实验结果。')}>
-          ⚡ 项目进展总结
+          <Icon name="zap" size={13} /> 项目进展总结
         </button>
       </div>
 

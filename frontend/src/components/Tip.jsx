@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import Icon from './Icon'
 import { createPortal } from 'react-dom'
 
 // 悬浮提示：portal 渲染到 body + fixed 定位，避免被任何 overflow 容器裁剪
@@ -52,7 +53,7 @@ export default function Tip({ text }) {
 
   return (
     <span className="tip-wrap" onMouseEnter={show} onMouseLeave={hide}>
-      <span ref={iconRef} className="tip-icon">ⓘ</span>
+      <span ref={iconRef} className="tip-icon"><Icon name="info" size={13} /></span>
       {popup}
     </span>
   )

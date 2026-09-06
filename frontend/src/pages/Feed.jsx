@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import Tip from '../components/Tip'
+import Icon from '../components/Icon'
+import EmptyState from '../components/EmptyState'
 
 export default function Feed() {
   const nav = useNavigate()
@@ -58,17 +60,37 @@ export default function Feed() {
             {onlyScored ? '显示全部' : '只看 AI 高分'}
           </button>
           <button className="btn primary" onClick={fetchNow} disabled={busy || jobs.length > 0}>
-            {busy || jobs.length > 0 ? '抓取中…' : '⟳ 抓取最新'}
+            <><Icon name="refresh" /> {busy || jobs.length > 0 ? '抓取中…' : '抓取最新'}</>
           </button>
         </div>
       </div>
 
-      {!items ? <div className="loading">加载中…</div> : items.length === 0 ? (
-        <div className="empty">暂无订阅内容，点击「抓取最新」试试。</div>
+      {!items ? (
+        <div>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="skel-card">
+              <div className="skel-line head w60" />
+              <div className="skel-line w40" />
+              <div className="skel-line w90" />
+              <div className="skel-line w60" />
+            </div>
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <EmptyState icon="rss" title="暂无订阅内容"
+          hint="点右上角「抓取最新」拉取 arXiv 新论文，AI 会按你的研究方向打分排序">
+          <button className="btn primary" onClick={fetchNow} disabled={busy || jobs.length > 0}>
+            <Icon name="refresh" /> 立即抓取
+          </button>
+        </EmptyState>
       ) : (
         items.map(it => (
           <div key={it.id} className="feed-item" style={it.dismissed ? { opacity: 0.5 } : undefined}>
-            {it.relevance != null && <span className="score">{Number(it.relevance).toFixed(0)}</span>}
+            {it.relevance != null && (() => {
+              const sc = Number(it.relevance)
+              const cls = sc >= 8 ? 'high' : sc >= 6 ? 'mid' : 'low'
+              return <span className={`score-badge ${cls}`} title="AI 相关度评分（0-10）">{sc.toFixed(0)}</span>
+            })()}
             <strong>{it.title}</strong>
             <div className="muted">
               {it.authors?.slice(0, 5).join(', ')}{it.authors?.length > 5 ? ' et al.' : ''}
@@ -76,17 +98,17 @@ export default function Feed() {
               {it.published ? ` · ${it.published.slice(0, 10)}` : ''}
             </div>
             <div className="muted" style={{ marginTop: 6 }}>{it.abstract?.slice(0, 220)}{it.abstract?.length > 220 ? '…' : ''}</div>
-            {it.relevance_reason && <div className="reason">🤖 {it.relevance_reason}</div>}
+            {it.relevance_reason && <div className="reason"><Icon name="bot" size={13} /> {it.relevance_reason}</div>}
             <div className="row mt" style={{ marginTop: 10 }}>
               {it.added_paper_id ? (
                 <button className="btn sm" onClick={() => nav(`/papers/${it.added_paper_id}`)}>已入库 → 查看</button>
               ) : (
-                <button className="btn sm primary" onClick={() => add(it)}>＋ 加入文献库</button>
+                <button className="btn sm primary" onClick={() => add(it)}><Icon name="plus" /> 加入文献库</button>
               )}
               <a href={`https://arxiv.org/abs/${it.arxiv_id}`} target="_blank" rel="noreferrer">
                 <button className="btn sm">arXiv 页面</button>
               </a>
-              {!it.dismissed && <button className="btn sm" onClick={() => dismiss(it)}>忽略</button>}
+              {!it.dismissed && <button className="btn sm" onClick={() => dismiss(it)}><Icon name="x" size={13} /> 忽略</button>}
             </div>
           </div>
         ))
