@@ -2,15 +2,19 @@
 
 文献归属存在 papers.projects（标签式，逗号 JSON），供文献库筛选复用；
 笔记与实验记录存 project_items，随项目删除级联清除。
+LaTeX 支持两种来源：手写（content 存 .tex 源码）或导入压缩包
+（原始包存 LATEX_DIR/archives/，编译时解压以保留图片/参考文献等资源）。
 """
 import json
 import shutil
 import subprocess
+import tarfile
 import tempfile
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -122,6 +126,14 @@ def get_project(project_id: int):
             it["pdf_ready"] = f.exists()
             if f.exists():
                 it["compiled_at"] = datetime.fromtimestamp(f.stat().st_mtime).strftime("%m-%d %H:%M")
+            # 归档项目（拖入压缩包）元信息
+            src_dir = LATEX_DIR / "archives" / f"item_{it['id']}"
+            if src_dir.exists() and any(src_dir.rglob("*.tex")):
+                main = _find_main_tex(src_dir)
+                it["archive"] = {
+                    "main_tex": str(main.relative_to(src_dir)) if main else None,
+                    "file_count": sum(1 for p in src_dir.rglob("*") if p.is_file()),
+                }
         items.append(it)
     d["items"] = items
     # 全库文献简要列表（前端添加文献弹窗用）
@@ -178,6 +190,12 @@ def delete_project(project_id: int):
             "UPDATE papers SET projects=? WHERE id=?",
             (json.dumps(names, ensure_ascii=False), r["id"]),
         )
+    # 清理项目下 LaTeX 条目的编译产物与源文件目录
+    for r in conn.execute(
+        "SELECT id FROM project_items WHERE project_id=? AND item_type='latex'", (project_id,)
+    ).fetchall():
+        (LATEX_DIR / f"item_{r['id']}.pdf").unlink(missing_ok=True)
+        shutil.rmtree(LATEX_DIR / "archives" / f"item_{r['id']}", ignore_errors=True)
     conn.execute("DELETE FROM project_items WHERE project_id=?", (project_id,))
     conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
     conn.commit()
@@ -269,14 +287,59 @@ def delete_item(project_id: int, item_id: int):
     conn = get_db()
     _get_project(conn, project_id)
     conn.execute("DELETE FROM project_items WHERE id=? AND project_id=?", (item_id, project_id))
-    # 顺带清理已编译的 PDF
+    # 顺带清理已编译的 PDF 和导入的源文件目录
     (LATEX_DIR / f"item_{item_id}.pdf").unlink(missing_ok=True)
+    shutil.rmtree(LATEX_DIR / "archives" / f"item_{item_id}", ignore_errors=True)
     conn.commit()
     return {"ok": True}
 
 
 def _latex_pdf_path(item_id: int) -> Path:
     return LATEX_DIR / f"item_{item_id}.pdf"
+
+
+def _archive_dir(item_id: int) -> Path:
+    """LaTeX 条目的源文件目录（拖入压缩包时解到这里）。"""
+    d = LATEX_DIR / "archives" / f"item_{item_id}"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _find_main_tex(root: Path) -> Path | None:
+    """识别主 .tex：有 \\documentclass 的优先；多候选时取最短路径（通常是 main.tex）。"""
+    candidates = []
+    for p in root.rglob("*.tex"):
+        try:
+            head = p.read_text(encoding="utf-8", errors="ignore")[:4000]
+        except OSError:
+            continue
+        if "\\documentclass" in head:
+            candidates.append(p)
+    if not candidates:
+        texs = list(root.rglob("*.tex"))
+        return min(texs, key=lambda p: len(p.parts)) if texs else None
+    return min(candidates, key=lambda p: (len(p.parts), len(str(p))))
+
+
+def _extract_archive(archive: Path, dest: Path):
+    """安全解压 zip/tar 到 dest（拒绝绝对路径与 .. 穿越）。"""
+    dest.mkdir(parents=True, exist_ok=True)
+    if zipfile.is_zipfile(archive):
+        with zipfile.ZipFile(archive) as z:
+            for m in z.namelist():
+                target = (dest / m).resolve()
+                if not str(target).startswith(str(dest.resolve())):
+                    raise HTTPException(400, f"压缩包内含不安全路径：{m}")
+            z.extractall(dest)
+    elif tarfile.is_tarfile(archive):
+        with tarfile.open(archive) as t:
+            for m in t.getnames():
+                target = (dest / m).resolve()
+                if not str(target).startswith(str(dest.resolve())):
+                    raise HTTPException(400, f"压缩包内含不安全路径：{m}")
+            t.extractall(dest, filter="data")
+    else:
+        raise HTTPException(400, "不支持的压缩包格式（支持 .zip / .tar.gz / .tgz / .tar.bz2）")
 
 
 def _log_errors(log_path: Path) -> str:
@@ -302,7 +365,11 @@ def _log_errors(log_path: Path) -> str:
 
 @router.post("/{project_id}/items/{item_id}/compile")
 def compile_latex(project_id: int, item_id: int):
-    """用 xelatex 把 LaTeX 文档编译成 PDF（临时目录沙箱，跑两遍以生成交叉引用）。"""
+    """用 xelatex 编译 LaTeX 条目成 PDF（两遍以生成交叉引用）。
+
+    有源文件目录（拖入过压缩包）时在目录内找主 .tex 编译（图片等资源可用）；
+    否则编译 content 里的手写源码。
+    """
     conn = get_db()
     _get_project(conn, project_id)
     r = conn.execute(
@@ -311,23 +378,60 @@ def compile_latex(project_id: int, item_id: int):
     ).fetchone()
     if r is None:
         raise HTTPException(404, "LaTeX 文档不存在")
-    src = r["content"] or ""
-    if not src.strip():
-        raise HTTPException(400, "文档内容为空")
+
+    src_dir = _archive_dir(item_id)
+    has_project = src_dir.exists() and any(src_dir.rglob("*.tex"))
+    if has_project:
+        main_tex = _find_main_tex(src_dir)
+        if main_tex is None:
+            raise HTTPException(400, "压缩包里没有找到 .tex 文件")
+        workdir = str(main_tex.parent)
+        tex_name = main_tex.name
+        pdf_name = main_tex.stem + ".pdf"
+    else:
+        src = r["content"] or ""
+        if not src.strip():
+            raise HTTPException(400, "文档内容为空")
+        workdir = None
+        tex_name = pdf_name = None
 
     try:
-        with tempfile.TemporaryDirectory(dir=LATEX_DIR, prefix="build_") as td:
-            (Path(td) / "doc.tex").write_text(src, encoding="utf-8")
-            for _ in range(2):
-                proc = subprocess.run(
-                    ["xelatex", "-interaction=nonstopmode", "-halt-on-error", "doc.tex"],
-                    cwd=td, capture_output=True, text=True, timeout=180,
-                )
-            pdf = Path(td) / "doc.pdf"
-            if not pdf.exists():
-                raise HTTPException(400, "编译失败：\n" + (_log_errors(Path(td) / "doc.log") or (proc.stderr or "")[-800:]))
-            out = _latex_pdf_path(item_id)
-            shutil.copyfile(pdf, out)
+        if has_project:
+            # 项目目录模式：复制到临时目录编译（不污染源目录），用户编辑的主 tex 内容一并写入
+            with tempfile.TemporaryDirectory(dir=LATEX_DIR, prefix="build_") as td:
+                build = Path(td) / "src"
+                shutil.copytree(src_dir, build)
+                if (r["content"] or "").strip():
+                    (build / main_tex.relative_to(src_dir)).write_text(r["content"], encoding="utf-8")
+                for _ in range(2):
+                    proc = subprocess.run(
+                        ["xelatex", "-interaction=nonstopmode", "-halt-on-error", tex_name],
+                        cwd=build, capture_output=True, text=True, timeout=180,
+                    )
+                pdf = build / pdf_name
+                log = build / (main_tex.stem + ".log")
+                if not pdf.exists():
+                    raise HTTPException(400, "编译失败：\n" + (_log_errors(log) or (proc.stderr or "")[-800:]))
+                out = _latex_pdf_path(item_id)
+                shutil.copyfile(pdf, out)
+        else:
+            with tempfile.TemporaryDirectory(dir=LATEX_DIR, prefix="build_") as td:
+                (Path(td) / "doc.tex").write_text(src, encoding="utf-8")
+                for _ in range(2):
+                    proc = subprocess.run(
+                        ["xelatex", "-interaction=nonstopmode", "-halt-on-error", "doc.tex"],
+                        cwd=td, capture_output=True, text=True, timeout=180,
+                    )
+                pdf = Path(td) / "doc.pdf"
+                log = Path(td) / "doc.log"
+                if not pdf.exists():
+                    raise HTTPException(400, "编译失败：\n" + (_log_errors(log) or (proc.stderr or "")[-800:]))
+                out = _latex_pdf_path(item_id)
+                shutil.copyfile(pdf, out)
+        if not pdf.exists():
+            raise HTTPException(400, "编译失败：\n" + (_log_errors(log) or (proc.stderr or "")[-800:]))
+        out = _latex_pdf_path(item_id)
+        shutil.copyfile(pdf, out)
     except subprocess.TimeoutExpired:
         raise HTTPException(400, "编译超时（超过 3 分钟），请检查文档是否有死循环命令")
     except HTTPException:
@@ -337,6 +441,71 @@ def compile_latex(project_id: int, item_id: int):
 
     ts = datetime.fromtimestamp(out.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
     return {"ok": True, "pdf_url": f"/api/projects/{project_id}/items/{item_id}/pdf", "compiled_at": ts}
+
+
+@router.post("/{project_id}/latex_import")
+async def import_latex_archive(project_id: int, file: UploadFile = File(...)):
+    """拖入 LaTeX 项目压缩包：解压入库为 latex 条目，自动识别主 .tex。
+
+    压缩包原样解压到 LATEX_DIR/archives/item_<id>/，保留图片、.bib 等资源，
+    编译时在目录内完成。标题取主 .tex 的 \\title 或压缩包文件名。
+    """
+    conn = get_db()
+    _get_project(conn, project_id)
+    name = file.filename or "project.zip"
+    if not name.lower().endswith((".zip", ".tar.gz", ".tgz", ".tar.bz2", ".tar")):
+        raise HTTPException(400, "仅支持 .zip / .tar.gz / .tgz / .tar.bz2 / .tar 压缩包")
+
+    import re as _re
+    cur = conn.execute(
+        "INSERT INTO project_items(project_id, item_type, title, content) VALUES(?,?,?,?)",
+        (project_id, "latex", Path(name).stem, ""),
+    )
+    item_id = cur.lastrowid
+    dest = _archive_dir(item_id)
+    try:
+        tmp = dest.parent / f"upload_{item_id}_{name}"
+        with open(tmp, "wb") as f:
+            f.write(await file.read())
+        _extract_archive(tmp, dest)
+        tmp.unlink(missing_ok=True)
+        # 压缩包常见有一层同名顶层目录，拍平
+        entries = [p for p in dest.iterdir()]
+        if len(entries) == 1 and entries[0].is_dir():
+            inner = entries[0]
+            for child in inner.iterdir():
+                shutil.move(str(child), str(dest / child.name))
+            inner.rmdir()
+        main = _find_main_tex(dest)
+        if main is None:
+            shutil.rmtree(dest, ignore_errors=True)
+            conn.execute("DELETE FROM project_items WHERE id=?", (item_id,))
+            conn.commit()
+            raise HTTPException(400, "压缩包里没有找到 .tex 文件")
+        # 标题：主 tex 的 \title{...} > 压缩包名
+        title = Path(name).stem
+        try:
+            head = main.read_text(encoding="utf-8", errors="ignore")[:6000]
+            m = _re.search(r"\\title\{([^}]{1,120})\}", head)
+            if m:
+                title = m.group(1).strip()
+        except OSError:
+            pass
+        conn.execute(
+            "UPDATE project_items SET title=?, updated_at=datetime('now','localtime') WHERE id=?",
+            (title, item_id),
+        )
+        conn.commit()
+        return {
+            "ok": True, "id": item_id, "title": title,
+            "main_tex": str(main.relative_to(dest)),
+            "file_count": sum(1 for p in dest.rglob("*") if p.is_file()),
+        }
+    except HTTPException:
+        conn.execute("DELETE FROM project_items WHERE id=?", (item_id,))
+        conn.commit()
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
 
 
 @router.get("/{project_id}/items/{item_id}/pdf")

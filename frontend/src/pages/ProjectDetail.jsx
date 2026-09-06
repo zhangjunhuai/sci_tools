@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, displayTitle } from '../api'
 import Tip from '../components/Tip'
@@ -44,6 +44,8 @@ export default function ProjectDetail() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [itemModal, setItemModal] = useState(null) // {item_type, id?, title, content}
   const [latexState, setLatexState] = useState({}) // item_id -> {status: compiling|ok|error, error?}
+  const [uploading, setUploading] = useState(false)
+  const latexInputRef = useRef(null)
 
   async function load() {
     try {
@@ -106,6 +108,27 @@ export default function ProjectDetail() {
       setLatexState(s => ({ ...s, [it.id]: { status: 'ok', pdfUrl: r.pdf_url, compiledAt: r.compiled_at } }))
     } catch (e) {
       setLatexState(s => ({ ...s, [it.id]: { status: 'error', error: e.message } }))
+    }
+  }
+
+  async function importArchive(file) {
+    if (!/\.(zip|tar\.gz|tgz|tar\.bz2|tar)$/i.test(file.name)) {
+      alert('仅支持 .zip / .tar.gz / .tgz / .tar.bz2 / .tar 压缩包')
+      return
+    }
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await api.post(`/projects/${id}/latex_import`, fd)
+      await load()
+      // 导入后自动编译一次，直接给出结果反馈
+      await compileLatex({ id: r.id })
+      load()
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setUploading(false)
     }
   }
 
@@ -179,10 +202,21 @@ export default function ProjectDetail() {
         items={results} onAdd={() => setItemModal({ item_type: 'result', title: '', content: '' })}
         onEdit={it => setItemModal({ ...it })} onDelete={deleteItem} />
 
-      <ItemSection title="📄 LaTeX 文档" tip="写周报、实验报告等，一键用 xelatex 编译成 PDF（支持中文）。需系统安装 TeX Live。"
+      <ItemSection title="📄 LaTeX 文档" tip="写周报、实验报告等，一键用 xelatex 编译成 PDF（支持中文）。也可直接把 LaTeX 项目压缩包（.zip / .tar.gz，如 Overleaf 导出）拖到本卡片上导入，图片、参考文献等资源会保留。需系统安装 TeX Live。"
         items={latexDocs} onAdd={() => setItemModal({ item_type: 'latex', title: '', content: TEX_TEMPLATE })}
-        onEdit={it => setItemModal({ ...it })} onDelete={deleteItem}>
-        {(it) => {
+        onEdit={it => setItemModal({ ...it })} onDelete={deleteItem}
+        headerExtra={
+          <>
+            <input type="file" hidden accept=".zip,.tar.gz,.tgz,.tar.bz2,.tar"
+              ref={el => el && (latexInputRef.current = el)}
+              onChange={e => { const f = e.target.files[0]; if (f) importArchive(f); e.target.value = '' }} />
+            <button className="btn sm" disabled={uploading} onClick={() => latexInputRef.current?.click()}>
+              {uploading ? '导入中…' : '📦 导入压缩包'}
+            </button>
+          </>
+        }
+        onDropFile={importArchive}
+        renderExtra={(it) => {
           const st = latexState[it.id] || {}
           return (
             <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -202,13 +236,18 @@ export default function ProjectDetail() {
                   </span>
                 </>
               )}
+              {it.archive && (
+                <span className="muted" style={{ fontSize: 12.5 }}>
+                  📦 项目包：{it.archive.file_count} 个文件 · 主文件 {it.archive.main_tex}
+                </span>
+              )}
               {st.status === 'error' && (
                 <pre className="latex-err">{st.error}</pre>
               )}
             </div>
           )
         }}
-      </ItemSection>
+      />
 
       <ProjectAiPanel project={proj} />
 
@@ -232,14 +271,28 @@ export default function ProjectDetail() {
   )
 }
 
-function ItemSection({ title, tip, items, onAdd, onEdit, onDelete, children }) {
+function ItemSection({ title, tip, items, onAdd, onEdit, onDelete, children, headerExtra, onDropFile, renderExtra }) {
+  const [dragOver, setDragOver] = useState(false)
   return (
-    <div className="card mb16">
+    <div className="card mb16"
+      style={dragOver ? { outline: '2px dashed var(--accent)', outlineOffset: '-4px' } : undefined}
+      onDragOver={e => { if (onDropFile) { e.preventDefault(); setDragOver(true) } }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={e => {
+        if (!onDropFile) return
+        e.preventDefault(); setDragOver(false)
+        const f = [...e.dataTransfer.files].find(x => /\.(zip|tar\.gz|tgz|tar\.bz2|tar)$/i.test(x.name))
+        if (f) onDropFile(f)
+      }}
+    >
       <div className="row spread mb8">
         <strong>{title}（{items.length}）<Tip text={tip} /></strong>
-        <button className="btn sm primary" onClick={onAdd}>＋ 新建</button>
+        <div className="row">
+          {headerExtra}
+          <button className="btn sm primary" onClick={onAdd}>＋ 新建</button>
+        </div>
       </div>
-      {items.length === 0 && <div className="muted">还没有内容。</div>}
+      {items.length === 0 && <div className="muted">{onDropFile ? '还没有内容。可以点「新建」，或直接把 LaTeX 项目压缩包拖到这里。' : '还没有内容。'}</div>}
       {items.map(it => (
         <div key={it.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
           <div className="row spread">
@@ -252,7 +305,7 @@ function ItemSection({ title, tip, items, onAdd, onEdit, onDelete, children }) {
           <div className="muted" style={{ fontSize: 12.5 }}>
             {it.updated_at?.slice(0, 16) || it.created_at?.slice(0, 16)}
           </div>
-          {children?.(it)}
+          {renderExtra?.(it)}
           {it.content && it.item_type !== 'latex' && (
             <div style={{
               marginTop: 4, fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap',
