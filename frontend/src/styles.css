@@ -334,3 +334,19 @@ a { color: var(--accent); }
   .proj-side-toggle { display: none; }
   .proj-workspace.side-hidden .proj-side { display: flex; }
 }
+
+/* 全局导航栏收起/展开 */
+.layout { position: relative; }
+.nav-toggle {
+  position: absolute; top: 14px; right: 8px; z-index: 10;
+  width: 20px; height: 20px; border: none; border-radius: 5px;
+  background: #2a3547; color: #cbd5e1; cursor: pointer; font-size: 11px;
+  display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
+}
+.nav-toggle:hover { background: var(--accent); color: #fff; }
+.sidebar .logo { white-space: nowrap; overflow: hidden; }
+.sidebar a { white-space: nowrap; }
+.layout.nav-collapsed .sidebar { width: 58px; padding: 16px 8px; }
+.layout.nav-collapsed .sidebar .logo { text-align: center; padding: 6px 0 18px; font-size: 18px; }
+.layout.nav-collapsed .sidebar a { justify-content: center; padding: 9px 0; font-size: 16px; }
+.layout.nav-collapsed .nav-toggle { right: 4px; }
