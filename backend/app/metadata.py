@@ -237,3 +237,62 @@ def fetch_arxiv_feed(categories: list, keywords: list, max_results: int = 80):
             }
         )
     return out
+
+
+# ---------- 期刊订阅（Crossref） ----------
+
+def search_journal(query: str):
+    """按名称模糊搜索期刊，返回 [{name, issn(印刷/电子任一), issns}]。"""
+    r = httpx.get(
+        "https://api.crossref.org/journals",
+        params={"query": query, "rows": 8},
+        timeout=30,
+    )
+    r.raise_for_status()
+    out = []
+    for it in r.json().get("message", {}).get("items", []):
+        titles = it.get("title") or []
+        if isinstance(titles, str):  # /journals 端点的 title 是字符串而非数组
+            titles = [titles]
+        issns = it.get("ISSN") or []
+        if titles and issns:
+            out.append({"name": titles[0], "issn": issns[0], "issns": issns})
+    return out
+
+
+def fetch_journal_works(issn: str, from_date: str | None = None, rows: int = 40):
+    """取期刊最新论文（按出版日期倒序），增量时传 from_date。
+
+    返回 [{doi, title, authors, abstract, venue, published}]。
+    """
+    params = {"rows": min(rows, 60), "sort": "published", "order": "desc",
+              "select": "DOI,title,author,abstract,container-title,issued,published"}
+    if from_date:
+        params["filter"] = f"from-pub-date:{from_date}"
+    r = httpx.get(f"https://api.crossref.org/journals/{issn}/works", params=params, timeout=30)
+    r.raise_for_status()
+    out = []
+    for it in r.json().get("message", {}).get("items", []):
+        title = (it.get("title") or [""])[0].strip()
+        doi = (it.get("DOI") or "").strip()
+        if not title or not doi:
+            continue
+        date_parts = (it.get("published") or it.get("issued") or {}).get("date-parts", [[None]])
+        parts = date_parts[0] if date_parts else []
+        published = "-".join(f"{int(p):02d}" for p in parts if p) or None
+        authors = []
+        for a in it.get("author", []):
+            nm = " ".join(filter(None, [a.get("given"), a.get("family")])).strip()
+            if nm:
+                authors.append(nm)
+        abstract = re.sub(r"<[^>]+>", " ", it.get("abstract", "") or "")
+        abstract = re.sub(r"\s+", " ", abstract).strip()
+        out.append({
+            "doi": doi,
+            "title": title,
+            "authors": authors,
+            "abstract": abstract[:5000],
+            "venue": (it.get("container-title") or [""])[0],
+            "published": published,
+        })
+    return out

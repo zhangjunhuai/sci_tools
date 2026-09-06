@@ -90,6 +90,29 @@ def init_db():
             value TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS journal_subs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            issn TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS journal_feed (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sub_id INTEGER NOT NULL REFERENCES journal_subs(id) ON DELETE CASCADE,
+            doi TEXT NOT NULL,
+            title TEXT NOT NULL,
+            authors TEXT NOT NULL DEFAULT '[]',
+            abstract TEXT DEFAULT '',
+            venue TEXT DEFAULT '',
+            published TEXT,
+            dismissed INTEGER NOT NULL DEFAULT 0,
+            added_paper_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_journal_feed_sub ON journal_feed(sub_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_feed_doi ON journal_feed(doi);
+
         CREATE TABLE IF NOT EXISTS feed_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             arxiv_id TEXT UNIQUE,

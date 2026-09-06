@@ -16,6 +16,8 @@ def run_job(job_type: str, payload: dict):
         import_zotero(payload["path"])
     elif job_type == "fetch_feed":
         fetch_feed()
+    elif job_type == "fetch_journal_feed":
+        fetch_journal_feed()
     else:
         raise ValueError(f"unknown job type {job_type}")
 
@@ -425,6 +427,83 @@ def add_feed_item_to_library(feed_id: int) -> int:
     paper_id = cur.lastrowid
     conn.execute(
         "UPDATE feed_items SET added_paper_id=? WHERE id=?", (paper_id, feed_id)
+    )
+    conn.commit()
+    from . import jobs as J
+    J.enqueue("process_paper", {"paper_id": paper_id})
+    return paper_id
+
+
+# ---------- 期刊订阅（Crossref 增量抓取） ----------
+
+def fetch_journal_feed():
+    """对所有已订阅期刊增量拉取最新论文，进 journal_feed 表。"""
+    import httpx
+    conn = get_db()
+    subs = conn.execute("SELECT * FROM journal_subs").fetchall()
+    for sub in subs:
+        if not sub["issn"]:
+            continue
+        last = conn.execute(
+            "SELECT MAX(published) m FROM journal_feed WHERE sub_id=?", (sub["id"],)
+        ).fetchone()["m"]
+        try:
+            works = metadata.fetch_journal_works(sub["issn"], last)
+        except httpx.HTTPError as e:
+            print(f"[journal_feed] {sub['name']}: {e}")
+            continue
+        new = 0
+        for w in works:
+            cur = conn.execute(
+                """INSERT INTO journal_feed(sub_id, doi, title, authors, abstract, venue, published)
+                   VALUES(?,?,?,?,?,?,?)
+                   ON CONFLICT(doi) DO NOTHING""",
+                (
+                    sub["id"], w["doi"], w["title"],
+                    json.dumps(w["authors"], ensure_ascii=False),
+                    w["abstract"], w["venue"], w["published"],
+                ),
+            )
+            new += cur.rowcount
+        conn.commit()
+        print(f"[journal_feed] {sub['name']}: fetched {len(works)}, new {new}")
+
+
+def add_journal_item_to_library(item_id: int) -> int:
+    """期刊条目入库：复用 DOI 入库管道（add_by_id：Crossref 元数据 + OA PDF + AI 处理）。"""
+    conn = get_db()
+    row = conn.execute("SELECT * FROM journal_feed WHERE id=?", (item_id,)).fetchone()
+    if row is None:
+        raise ValueError("journal feed item not found")
+    if row["added_paper_id"]:
+        return row["added_paper_id"]
+
+    # 查重（同 DOI 已在库）
+    dup = conn.execute("SELECT id FROM papers WHERE doi=?", (row["doi"],)).fetchone()
+    if dup:
+        conn.execute(
+            "UPDATE journal_feed SET added_paper_id=? WHERE id=?", (dup["id"], item_id)
+        )
+        conn.commit()
+        return dup["id"]
+
+    # 走现有 DOI 入库流程：建 paper 记录 → process_paper 会补 Unpaywall OA PDF 与 AI 标签
+    cur = conn.execute(
+        """INSERT INTO papers(title, authors, year, venue, doi, abstract, source)
+           VALUES(?,?,?,?,?,?,'journal_feed')""",
+        (
+            row["title"],
+            row["authors"],
+            int(row["published"][:4]) if row["published"] else None,
+            row["venue"],
+            row["doi"],
+            row["abstract"],
+        ),
+    )
+    conn.commit()
+    paper_id = cur.lastrowid
+    conn.execute(
+        "UPDATE journal_feed SET added_paper_id=? WHERE id=?", (paper_id, item_id)
     )
     conn.commit()
     from . import jobs as J
