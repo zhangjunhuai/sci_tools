@@ -260,7 +260,7 @@ a { color: var(--accent); }
   display: grid; grid-template-columns: 280px minmax(0, 1fr);
   border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--panel); overflow: hidden;
-  height: calc(100vh - 105px);
+  height: calc(100vh - 50px);
 }
 .proj-workspace.side-hidden { grid-template-columns: minmax(0, 1fr); }
 .proj-side-toggle {
@@ -421,3 +421,18 @@ a { color: var(--accent); }
   .proj-search { width: auto; flex: 1; }
   .projpage-head { flex-direction: column; align-items: stretch; }
 }
+
+/* 项目概览：快速开始 + 迷你活动 */
+.proj-quick { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.proj-quick-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.proj-quick-row .proj-quick-btn { flex: 1 1 230px; }
+.proj-quick-btn {
+  display: flex; gap: 10px; align-items: flex-start; text-align: left;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--panel);
+  padding: 10px 12px; cursor: pointer; font-size: 13px; line-height: 1.5; color: var(--text);
+}
+.proj-quick-btn:hover { border-color: var(--accent); background: var(--accent-weak); }
+.proj-quick-ico { font-size: 20px; flex-shrink: 0; }
+.proj-act-mini { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.proj-act-mini > strong { font-size: 13.5px; }
+.proj-act-mini .pact-row { border-bottom: 1px dashed var(--border); }

@@ -46,6 +46,7 @@ export default function ProjectDetail() {
   const [uploading, setUploading] = useState(false)
   const [collapsed, setCollapsed] = useState(new Set()) // 折叠的树分组
   const [sideHidden, setSideHidden] = useState(false) // 收起整个左侧栏
+  const [activities, setActivities] = useState([]) // 项目内最近活动
   // VSCode 式选中：{kind: overview|paper|note|result|latex|ai, id?}
   const [sel, setSel] = useState({ kind: 'overview', id: null })
   const [draft, setDraft] = useState(null) // 选中条目的编辑草稿 {title, content}
@@ -54,11 +55,25 @@ export default function ProjectDetail() {
 
   async function load() {
     try {
-      setProj(await api.get(`/projects/${id}`))
+      const d = await api.get(`/projects/${id}`)
+      setProj(d)
       setError('')
+      // 项目内最近活动（活动流里筛出本项目的记录）
+      try {
+        const a = await api.get('/projects/activity?limit=60')
+        setActivities(a.items.filter(e => e.project_name === d.name))
+      } catch { /* 活动流失败不影响主内容 */ }
     } catch (e) {
       setError(e.message)
     }
+  }
+
+  // 概览页「快速开始」引导跳转
+  function onQuickStart(action) {
+    if (action === 'add-papers') setPickerOpen(true)
+    else if (action === 'new-note') newItem('note')
+    else if (action === 'new-latex') newItem('latex')
+    else if (action === 'ai') setSel({ kind: 'ai', id: null })
   }
 
   useEffect(() => { load() }, [id])
@@ -287,9 +302,10 @@ export default function ProjectDetail() {
             title="展开侧栏" style={{ marginBottom: 10 }}>» 展开侧栏</button>
         )}
         {sel.kind === 'overview' && (
-          <OverviewPanel proj={proj} editingMeta={editingMeta} metaForm={metaForm}
+          <OverviewPanel proj={proj} activities={activities} editingMeta={editingMeta} metaForm={metaForm}
             setMetaForm={setMetaForm} saveMeta={saveMeta} setEditingMeta={setEditingMeta}
-            startEditMeta={startEditMeta} deleteProject={deleteProject} />
+            startEditMeta={startEditMeta} deleteProject={deleteProject}
+            onQuickStart={onQuickStart} />
         )}
 
         {sel.kind === 'paper' && selPaper && (
@@ -330,7 +346,7 @@ export default function ProjectDetail() {
 }
 
 /* ---------- 右侧：项目概览 ---------- */
-function OverviewPanel({ proj, editingMeta, metaForm, setMetaForm, saveMeta, setEditingMeta, startEditMeta, deleteProject }) {
+function OverviewPanel({ proj, activities, editingMeta, metaForm, setMetaForm, saveMeta, setEditingMeta, startEditMeta, deleteProject, onQuickStart }) {
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>📁 {proj.name}</h2>
@@ -359,10 +375,56 @@ function OverviewPanel({ proj, editingMeta, metaForm, setMetaForm, saveMeta, set
           </div>
         </div>
       )}
-      <div className="muted" style={{ marginTop: 24, fontSize: 13 }}>
-        ← 从左侧选择文献、笔记或 LaTeX 文档查看/编辑；「🤖 AI 助手」可基于项目内容问答。
+
+      {/* 快速开始：按当前状态给出下一步引导 */}
+      <div className="proj-quick mb16">
+        <strong>🚀 快速开始</strong>
+        <div className="proj-quick-row">
+          {proj.papers.length === 0 && (
+            <button className="proj-quick-btn" onClick={() => onQuickStart('add-papers')}>
+              <span className="proj-quick-ico">📄</span>
+              <span><strong>添加文献</strong><br />从文献库勾选与本主题相关的论文</span>
+            </button>
+          )}
+          {proj.items.filter(i => ['note', 'result'].includes(i.item_type)).length === 0 && (
+            <button className="proj-quick-btn" onClick={() => onQuickStart('new-note')}>
+              <span className="proj-quick-ico">📝</span>
+              <span><strong>写一条笔记</strong><br />记下研究想法或文献综述片段</span>
+            </button>
+          )}
+          {proj.items.filter(i => i.item_type === 'latex').length === 0 && (
+            <button className="proj-quick-btn" onClick={() => onQuickStart('new-latex')}>
+              <span className="proj-quick-ico">📊</span>
+              <span><strong>建 LaTeX 文档</strong><br />写周报/报告并一键编译 PDF</span>
+            </button>
+          )}
+          {proj.items.some(i => i.item_type === 'latex') && proj.papers.length > 0 && (
+            <button className="proj-quick-btn" onClick={() => onQuickStart('ai')}>
+              <span className="proj-quick-ico">🤖</span>
+              <span><strong>问问 AI</strong><br />基于项目内容做进展总结</span>
+            </button>
+          )}
+        </div>
       </div>
-      <div style={{ marginTop: 18 }}>
+
+      {/* 最近活动 */}
+      {activities.length > 0 && (
+        <div className="proj-act-mini">
+          <strong>🕐 最近活动</strong>
+          {activities.slice(0, 5).map((e, i) => (
+            <div key={i} className="pact-row" style={{ padding: '8px 0' }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 13.5 }}>
+                <span className="muted">{e.action}</span>
+                {e.detail && <span> · {e.detail}</span>}
+              </div>
+              <span className="muted" style={{ fontSize: 12 }}>{String(e.time).slice(5, 16)}</span>
+            </div>
+          ))}
+          <Link to="/projects" style={{ fontSize: 13 }}>查看全部活动 →</Link>
+        </div>
+      )}
+
+      <div style={{ marginTop: 20 }}>
         <button className="btn sm danger" onClick={deleteProject}>🗑 删除项目</button>
       </div>
     </div>
