@@ -42,9 +42,13 @@ export default function ProjectDetail() {
   const [editingMeta, setEditingMeta] = useState(false)
   const [metaForm, setMetaForm] = useState(null)
   const [pickerOpen, setPickerOpen] = useState(false)
-  const [itemModal, setItemModal] = useState(null) // {item_type, id?, title, content}
   const [latexState, setLatexState] = useState({}) // item_id -> {status: compiling|ok|error, error?}
   const [uploading, setUploading] = useState(false)
+  const [collapsed, setCollapsed] = useState(new Set()) // 折叠的树分组
+  // VSCode 式选中：{kind: overview|paper|note|result|latex|ai, id?}
+  const [sel, setSel] = useState({ kind: 'overview', id: null })
+  const [draft, setDraft] = useState(null) // 选中条目的编辑草稿 {title, content}
+  const [saving, setSaving] = useState(false)
   const latexInputRef = useRef(null)
 
   async function load() {
@@ -58,9 +62,29 @@ export default function ProjectDetail() {
 
   useEffect(() => { load() }, [id])
 
+  // 选中项变化（或数据刷新）时同步编辑草稿
+  const selItem = proj?.items?.find(i => i.id === sel.id) || null
+  const selPaper = sel.kind === 'paper' ? proj?.papers?.find(p => p.id === sel.id) : null
+  useEffect(() => {
+    if (selItem && ['note', 'result', 'latex'].includes(selItem.item_type)) {
+      setDraft({ title: selItem.title || '', content: selItem.content || '' })
+    } else {
+      setDraft(null)
+    }
+  }, [sel.kind, sel.id, selItem?.id, selItem?.updated_at])
+
+  function toggleGroup(key) {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }
+
   function startEditMeta() {
     setMetaForm({ name: proj.name, description: proj.description || '' })
     setEditingMeta(true)
+    setSel({ kind: 'overview', id: null })
   }
 
   async function saveMeta() {
@@ -81,27 +105,46 @@ export default function ProjectDetail() {
 
   async function removePaper(pid) {
     await api.del(`/projects/${id}/papers/${pid}`)
+    if (sel.kind === 'paper' && sel.id === pid) setSel({ kind: 'overview', id: null })
     load()
   }
 
-  async function saveItem(form) {
-    if (form.id) {
-      await api.patch(`/projects/${id}/items/${form.id}`, { title: form.title, content: form.content })
-    } else {
-      await api.post(`/projects/${id}/items`, { item_type: form.item_type, title: form.title, content: form.content })
+  // 新建条目：立即创建并选中进入编辑（VSCode 新文件式）
+  async function newItem(itemType) {
+    const defaults = itemType === 'latex'
+      ? { title: '未命名文档', content: TEX_TEMPLATE }
+      : { title: '', content: '' }
+    const r = await api.post(`/projects/${id}/items`, { item_type: itemType, ...defaults })
+    await load()
+    setSel({ kind: itemType, id: r.id })
+  }
+
+  async function saveDraft() {
+    if (!draft || !selItem) return false
+    setSaving(true)
+    try {
+      await api.patch(`/projects/${id}/items/${selItem.id}`, draft)
+      await load()
+      return true
+    } catch (e) {
+      setError(e.message)
+      return false
+    } finally {
+      setSaving(false)
     }
-    setItemModal(null)
-    load()
   }
 
   async function deleteItem(it) {
     if (!confirm(`删除${TYPE_LABEL[it.item_type] || '条目'}「${it.title || '无标题'}」？不可恢复。`)) return
     await api.del(`/projects/${id}/items/${it.id}`)
+    if (sel.id === it.id) setSel({ kind: 'overview', id: null })
     load()
   }
 
   async function compileLatex(it) {
     if (latexState[it.id]?.status === 'compiling') return
+    // 编译前先保存编辑中的内容
+    if (sel.kind === 'latex' && sel.id === it.id && draft) await saveDraft()
     setLatexState(s => ({ ...s, [it.id]: { status: 'compiling' } }))
     try {
       const r = await api.post(`/projects/${id}/items/${it.id}/compile`)
@@ -122,7 +165,7 @@ export default function ProjectDetail() {
       fd.append('file', file)
       const r = await api.post(`/projects/${id}/latex_import`, fd)
       await load()
-      // 导入后自动编译一次，直接给出结果反馈
+      setSel({ kind: 'latex', id: r.id })
       await compileLatex({ id: r.id })
       load()
     } catch (e) {
@@ -139,118 +182,125 @@ export default function ProjectDetail() {
   const results = proj.items.filter(i => i.item_type === 'result')
   const latexDocs = proj.items.filter(i => i.item_type === 'latex')
   const inProject = new Set(proj.papers.map(p => p.id))
+  const groupItems = { papers: proj.papers, notes, results, latex: latexDocs }
+
+  const groups = [
+    { key: 'papers', label: '文献', icon: '📄', count: proj.papers.length,
+      onAdd: () => setPickerOpen(true) },
+    { key: 'notes', label: '笔记', icon: '📝', count: notes.length, onAdd: () => newItem('note') },
+    { key: 'results', label: '实验记录', icon: '🧪', count: results.length, onAdd: () => newItem('result') },
+    { key: 'latex', label: 'LaTeX 文档', icon: '📊', count: latexDocs.length, onAdd: () => newItem('latex') },
+  ]
+
+  function treeItemsFor(g) {
+    if (g.key === 'papers') {
+      return proj.papers.map(p => ({
+        id: p.id, kind: 'paper', icon: '📄', title: displayTitle(p.title),
+        badge: p.has_pdf ? null : '⚠',
+      }))
+    }
+    return groupItems[g.key].map(it => ({
+      id: it.id, kind: it.item_type, icon: it.item_type === 'latex' ? '📊' : g.icon,
+      title: it.title || '（无标题）',
+      badge: it.item_type === 'latex'
+        ? (latexState[it.id]?.status === 'error' ? '🔴' : (it.pdf_ready || latexState[it.id]?.status === 'ok') ? '🟢' : null)
+        : null,
+      extra: it.item_type === 'latex' && it.archive ? `📦${it.archive.file_count}` : null,
+    }))
+  }
 
   return (
-    <div>
-      <div className="page-head">
-        <div>
-          <Link to="/projects">← 项目</Link>
-          <h1 style={{ marginTop: 6 }}>📁 {proj.name}</h1>
-          {proj.description && <div className="muted">{proj.description}</div>}
-        </div>
-        <div className="row">
-          <button className="btn sm" onClick={startEditMeta}>编辑信息</button>
-          <button className="btn sm danger" onClick={deleteProject}>🗑 删除项目</button>
-        </div>
-      </div>
-
-      {editingMeta && (
-        <div className="card mb16">
-          <strong className="mb8">编辑项目信息</strong>
-          <div className="form-row"><label>项目名称</label>
-            <input value={metaForm.name} onChange={e => setMetaForm({ ...metaForm, name: e.target.value })} /></div>
-          <div className="form-row"><label>描述</label>
-            <input value={metaForm.description} onChange={e => setMetaForm({ ...metaForm, description: e.target.value })} /></div>
-          <div className="row">
-            <button className="btn primary" onClick={saveMeta}>保存</button>
-            <button className="btn" onClick={() => setEditingMeta(false)}>取消</button>
+    <div className="proj-workspace">
+      {/* ============ 左侧资源树 ============ */}
+      <aside className="proj-side">
+        <div className="proj-side-head">
+          <Link to="/projects" className="proj-back">← 项目</Link>
+          <div className="proj-side-title" title={proj.name}>📁 {proj.name}</div>
+          {proj.description && <div className="proj-side-desc">{proj.description}</div>}
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="btn sm" onClick={startEditMeta}>编辑</button>
+            <button className="btn sm danger" onClick={deleteProject}>🗑</button>
           </div>
         </div>
-      )}
 
-      {/* ---------- 文献 ---------- */}
-      <div className="card mb16">
-        <div className="row spread mb8">
-          <strong>📄 文献（{proj.papers.length}）</strong>
-          <button className="btn sm primary" onClick={() => setPickerOpen(true)}>＋ 添加文献</button>
-        </div>
-        {proj.papers.length === 0 && <div className="muted">还没有文献，点「添加文献」从库里勾选。</div>}
-        {proj.papers.map(p => (
-          <div key={p.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-            <div className="row spread">
-              <span className="clickable" style={{ fontWeight: 600, fontSize: 14 }}
-                onClick={() => nav(`/papers/${p.id}`)}>
-                {displayTitle(p.title)}
-              </span>
-              <button className="btn sm" onClick={() => removePaper(p.id)} title="从项目移除（文献保留在库）">移除</button>
+        <div className="proj-tree">
+          {groups.map(g => (
+            <div key={g.key}>
+              <div className="ptree-group-head" onClick={() => toggleGroup(g.key)}>
+                <span>{collapsed.has(g.key) ? '▸' : '▾'} {g.icon} {g.label} <span className="muted">{g.count}</span></span>
+                <span className="ptree-add" title={`新建${g.label}`}
+                  onClick={e => { e.stopPropagation(); g.onAdd() }}>＋</span>
+              </div>
+              {!collapsed.has(g.key) && treeItemsFor(g).map(it => (
+                <div key={it.id}
+                  className={`ptree-item ${sel.kind === it.kind && sel.id === it.id ? 'active' : ''}`}
+                  onClick={() => setSel({ kind: it.kind, id: it.id })}
+                  title={it.title}>
+                  <span className="ptree-icon">{it.icon}</span>
+                  <span className="ptree-label">{it.title}</span>
+                  {it.extra && <span className="ptree-extra">{it.extra}</span>}
+                  {it.badge && <span className="ptree-badge">{it.badge}</span>}
+                  {it.kind !== 'paper' && (
+                    <span className="ptree-x" title="删除"
+                      onClick={e => { e.stopPropagation(); deleteItem(groupItems[g.key].find(x => x.id === it.id)) }}>✕</span>
+                  )}
+                </div>
+              ))}
+              {!collapsed.has(g.key) && groupItems[g.key].length === 0 && (
+                <div className="ptree-empty">（空）</div>
+              )}
             </div>
-            <div className="muted">
-              {p.authors?.slice(0, 3).join(', ')}{p.authors?.length > 3 ? ' et al.' : ''}
-              {p.year ? ` · ${p.year}` : ''}{p.venue ? ` · ${p.venue}` : ''}
-              {p.has_pdf ? '' : ' · ⚠ 无 PDF'}
-            </div>
-            {p.journal_info && <div style={{ marginTop: 4 }}><JournalBadge info={p.journal_info} /></div>}
+          ))}
+
+          <div className="ptree-group-head" style={{ marginTop: 10 }}>
+            <span>🤖 AI 助手</span>
           </div>
-        ))}
-      </div>
+          <div className={`ptree-item ${sel.kind === 'ai' ? 'active' : ''}`}
+            onClick={() => setSel({ kind: 'ai', id: null })}>
+            <span className="ptree-icon">🤖</span>
+            <span className="ptree-label">与项目对话</span>
+          </div>
+        </div>
 
-      {/* ---------- 笔记 / 实验记录 ---------- */}
-      <ItemSection title="📝 笔记" tip="研究想法、文献综述片段、讨论记录，支持 Markdown。" 
-        items={notes} onAdd={() => setItemModal({ item_type: 'note', title: '', content: '' })}
-        onEdit={it => setItemModal({ ...it })} onDelete={deleteItem} />
-      <ItemSection title="🧪 实验记录" tip="实验设置、结果、指标对比，支持 Markdown。"
-        items={results} onAdd={() => setItemModal({ item_type: 'result', title: '', content: '' })}
-        onEdit={it => setItemModal({ ...it })} onDelete={deleteItem} />
+        <div className="proj-side-foot">
+          <input type="file" hidden accept=".zip,.tar.gz,.tgz,.tar.bz2,.tar"
+            ref={el => el && (latexInputRef.current = el)}
+            onChange={e => { const f = e.target.files[0]; if (f) importArchive(f); e.target.value = '' }} />
+          <button className="btn sm" style={{ width: '100%' }} disabled={uploading}
+            onClick={() => latexInputRef.current?.click()}>
+            {uploading ? '导入中…' : '📦 导入 LaTeX 压缩包'}
+          </button>
+        </div>
+      </aside>
 
-      <ItemSection title="📄 LaTeX 文档" tip="写周报、实验报告等，一键用 xelatex 编译成 PDF（支持中文）。也可直接把 LaTeX 项目压缩包（.zip / .tar.gz，如 Overleaf 导出）拖到本卡片上导入，图片、参考文献等资源会保留。需系统安装 TeX Live。"
-        items={latexDocs} onAdd={() => setItemModal({ item_type: 'latex', title: '', content: TEX_TEMPLATE })}
-        onEdit={it => setItemModal({ ...it })} onDelete={deleteItem}
-        headerExtra={
-          <>
-            <input type="file" hidden accept=".zip,.tar.gz,.tgz,.tar.bz2,.tar"
-              ref={el => el && (latexInputRef.current = el)}
-              onChange={e => { const f = e.target.files[0]; if (f) importArchive(f); e.target.value = '' }} />
-            <button className="btn sm" disabled={uploading} onClick={() => latexInputRef.current?.click()}>
-              {uploading ? '导入中…' : '📦 导入压缩包'}
-            </button>
-          </>
-        }
-        onDropFile={importArchive}
-        renderExtra={(it) => {
-          const st = latexState[it.id] || {}
-          return (
-            <div style={{ marginTop: 6, display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-              <button className="btn sm primary" disabled={st.status === 'compiling'} onClick={() => compileLatex(it)}>
-                {st.status === 'compiling' ? '编译中…（可能需几十秒）' : '▶ 编译'}
-              </button>
-              {(st.status === 'ok' || it.pdf_ready) && (
-                <>
-                  <a href={st.pdfUrl || `/api/projects/${id}/items/${it.id}/pdf`} target="_blank" rel="noreferrer">
-                    <button className="btn sm">👁 预览 PDF</button>
-                  </a>
-                  <a href={st.pdfUrl || `/api/projects/${id}/items/${it.id}/pdf`}
-                     download={`${displayTitle(it.title) || 'document'}.pdf`}>
-                    <button className="btn sm">⬇ 下载</button>
-                  </a>
-                  <span className="muted" style={{ fontSize: 12.5 }}>
-                    编译于 {st.compiledAt || it.compiled_at}
-                  </span>
-                </>
-              )}
-              {it.archive && (
-                <span className="muted" style={{ fontSize: 12.5 }}>
-                  📦 项目包：{it.archive.file_count} 个文件 · 主文件 {it.archive.main_tex}
-                </span>
-              )}
-              {st.status === 'error' && (
-                <pre className="latex-err">{st.error}</pre>
-              )}
-            </div>
-          )
-        }}
-      />
+      {/* ============ 右侧主显示区 ============ */}
+      <main className="proj-main">
+        {sel.kind === 'overview' && (
+          <OverviewPanel proj={proj} editingMeta={editingMeta} metaForm={metaForm}
+            setMetaForm={setMetaForm} saveMeta={saveMeta} setEditingMeta={setEditingMeta}
+            startEditMeta={startEditMeta} deleteProject={deleteProject} />
+        )}
 
-      <ProjectAiPanel project={proj} />
+        {sel.kind === 'paper' && selPaper && (
+          <PaperView paper={selPaper} nav={nav} onRemove={() => removePaper(selPaper.id)} />
+        )}
+
+        {sel.kind === 'ai' && <ProjectAiPanel project={proj} />}
+
+        {['note', 'result', 'latex'].includes(sel.kind) && selItem && (
+          <ItemEditor
+            item={selItem} draft={draft} setDraft={setDraft} saving={saving}
+            onSave={saveDraft} onDelete={() => deleteItem(selItem)}
+            onCompile={() => compileLatex(selItem)}
+            latexState={latexState[selItem.id] || {}}
+            projectId={id}
+          />
+        )}
+
+        {!['overview', 'paper', 'ai', 'note', 'result', 'latex'].includes(sel.kind) && (
+          <div className="empty">从左侧选择要查看的内容。</div>
+        )}
+      </main>
 
       {pickerOpen && (
         <PaperPicker
@@ -264,62 +314,138 @@ export default function ProjectDetail() {
           }}
         />
       )}
+    </div>
+  )
+}
 
-      {itemModal && (
-        <ItemModal form={itemModal} onClose={() => setItemModal(null)} onSave={saveItem} />
+/* ---------- 右侧：项目概览 ---------- */
+function OverviewPanel({ proj, editingMeta, metaForm, setMetaForm, saveMeta, setEditingMeta, startEditMeta, deleteProject }) {
+  return (
+    <div>
+      <h2 style={{ marginTop: 0 }}>📁 {proj.name}</h2>
+      {proj.description ? (
+        <p className="muted" style={{ marginTop: -6 }}>{proj.description}</p>
+      ) : (
+        <p className="muted" style={{ marginTop: -6 }}>无描述。</p>
+      )}
+      <div className="row mb16" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <span className="tag accent">📄 {proj.papers.length} 篇文献</span>
+        <span className="tag">📝 {proj.items.filter(i => i.item_type === 'note').length} 条笔记</span>
+        <span className="tag">🧪 {proj.items.filter(i => i.item_type === 'result').length} 条实验记录</span>
+        <span className="tag">📊 {proj.items.filter(i => i.item_type === 'latex').length} 个 LaTeX 文档</span>
+      </div>
+      {!editingMeta ? (
+        <button className="btn sm" onClick={startEditMeta}>编辑项目信息</button>
+      ) : (
+        <div className="card" style={{ maxWidth: 560 }}>
+          <div className="form-row"><label>项目名称</label>
+            <input value={metaForm.name} onChange={e => setMetaForm({ ...metaForm, name: e.target.value })} /></div>
+          <div className="form-row"><label>描述</label>
+            <input value={metaForm.description} onChange={e => setMetaForm({ ...metaForm, description: e.target.value })} /></div>
+          <div className="row">
+            <button className="btn primary sm" onClick={saveMeta}>保存</button>
+            <button className="btn sm" onClick={() => setEditingMeta(false)}>取消</button>
+          </div>
+        </div>
+      )}
+      <div className="muted" style={{ marginTop: 24, fontSize: 13 }}>
+        ← 从左侧选择文献、笔记或 LaTeX 文档查看/编辑；「🤖 AI 助手」可基于项目内容问答。
+      </div>
+      <div style={{ marginTop: 18 }}>
+        <button className="btn sm danger" onClick={deleteProject}>🗑 删除项目</button>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- 右侧：文献视图 ---------- */
+function PaperView({ paper, nav, onRemove }) {
+  return (
+    <div>
+      <h2 style={{ marginTop: 0 }}>{displayTitle(paper.title)}</h2>
+      <div className="muted">
+        {paper.authors?.join(', ')}
+        {paper.year ? ` · ${paper.year}` : ''}{paper.venue ? ` · ${paper.venue}` : ''}
+        {paper.has_pdf ? '' : ' · ⚠ 无 PDF'}
+      </div>
+      {paper.journal_info && <div style={{ margin: '8px 0' }}><JournalBadge info={paper.journal_info} /></div>}
+      {paper.abstract && (
+        <p style={{ lineHeight: 1.7, fontSize: 14 }}>{paper.abstract}</p>
+      )}
+      {(paper.projects?.length || paper.tags?.length) && (
+        <div className="mb8">
+          {paper.projects?.map(p => <span key={p} className="tag accent">{p}</span>)}
+          {paper.tags?.map(t => <span key={t} className="tag">{t}</span>)}
+        </div>
+      )}
+      <div className="row" style={{ marginTop: 16 }}>
+        <button className="btn sm primary" onClick={() => nav(`/papers/${paper.id}`)}>打开完整详情（阅读 / 批注 / AI）</button>
+        <button className="btn sm" onClick={onRemove} title="从项目移除（文献保留在库）">从项目移除</button>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- 右侧：条目内联编辑器 ---------- */
+function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile, latexState, projectId }) {
+  const isLatex = item.item_type === 'latex'
+  const st = latexState
+  const typeLabel = { note: '📝 笔记', result: '🧪 实验记录', latex: '📄 LaTeX 文档' }[item.item_type]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className="row spread" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <strong>{typeLabel}</strong>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          {isLatex && (
+            <>
+              <button className="btn sm primary" disabled={st.status === 'compiling'} onClick={onCompile}>
+                {st.status === 'compiling' ? '编译中…（可能需几十秒）' : '▶ 编译'}
+              </button>
+              {(st.status === 'ok' || item.pdf_ready) && (
+                <>
+                  <a href={st.pdfUrl || `/api/projects/${projectId}/items/${item.id}/pdf`} target="_blank" rel="noreferrer">
+                    <button className="btn sm">👁 预览 PDF</button>
+                  </a>
+                  <a href={st.pdfUrl || `/api/projects/${projectId}/items/${item.id}/pdf`}
+                     download={`${displayTitle(draft?.title || item.title) || 'document'}.pdf`}>
+                    <button className="btn sm">⬇ 下载</button>
+                  </a>
+                  <span className="muted" style={{ fontSize: 12.5 }}>编译于 {st.compiledAt || item.compiled_at}</span>
+                </>
+              )}
+            </>
+          )}
+          <button className="btn sm" disabled={saving || !draft} onClick={onSave}>
+            {saving ? '保存中…' : '💾 保存'}
+          </button>
+          <button className="btn sm danger" onClick={onDelete}>🗑 删除</button>
+        </div>
+      </div>
+
+      {item.archive && (
+        <div className="muted" style={{ fontSize: 12.5, margin: '6px 0' }}>
+          📦 项目包：{item.archive.file_count} 个文件 · 主文件 {item.archive.main_tex}
+          （编辑下方主 tex 源码，保存并编译即生效）
+        </div>
+      )}
+
+      <input className="proj-item-title" value={draft?.title ?? ''}
+        placeholder="标题" onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} />
+
+      <textarea className="proj-item-content" value={draft?.content ?? ''}
+        placeholder={isLatex ? 'LaTeX 源码…' : '内容（支持 Markdown）…'}
+        onChange={e => setDraft(d => ({ ...d, content: e.target.value }))} />
+
+      {isLatex && st.status === 'error' && <pre className="latex-err">{st.error}</pre>}
+      {isLatex && !item.archive && (
+        <div className="muted" style={{ fontSize: 12.5 }}>提示：直接把 LaTeX 项目压缩包（.zip / .tar.gz）拖到左侧 LaTeX 分组可导入完整项目（图片/参考文献）。</div>
       )}
     </div>
   )
 }
 
-function ItemSection({ title, tip, items, onAdd, onEdit, onDelete, children, headerExtra, onDropFile, renderExtra }) {
-  const [dragOver, setDragOver] = useState(false)
-  return (
-    <div className="card mb16"
-      style={dragOver ? { outline: '2px dashed var(--accent)', outlineOffset: '-4px' } : undefined}
-      onDragOver={e => { if (onDropFile) { e.preventDefault(); setDragOver(true) } }}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={e => {
-        if (!onDropFile) return
-        e.preventDefault(); setDragOver(false)
-        const f = [...e.dataTransfer.files].find(x => /\.(zip|tar\.gz|tgz|tar\.bz2|tar)$/i.test(x.name))
-        if (f) onDropFile(f)
-      }}
-    >
-      <div className="row spread mb8">
-        <strong>{title}（{items.length}）<Tip text={tip} /></strong>
-        <div className="row">
-          {headerExtra}
-          <button className="btn sm primary" onClick={onAdd}>＋ 新建</button>
-        </div>
-      </div>
-      {items.length === 0 && <div className="muted">{onDropFile ? '还没有内容。可以点「新建」，或直接把 LaTeX 项目压缩包拖到这里。' : '还没有内容。'}</div>}
-      {items.map(it => (
-        <div key={it.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-          <div className="row spread">
-            <span className="clickable" style={{ fontWeight: 600, fontSize: 14 }}
-              onClick={() => onEdit(it)} title="点击编辑">
-              {it.title || '（无标题）'}
-            </span>
-            <button className="btn sm" onClick={() => onDelete(it)}>删</button>
-          </div>
-          <div className="muted" style={{ fontSize: 12.5 }}>
-            {it.updated_at?.slice(0, 16) || it.created_at?.slice(0, 16)}
-          </div>
-          {renderExtra?.(it)}
-          {it.content && it.item_type !== 'latex' && (
-            <div style={{
-              marginTop: 4, fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap',
-              color: 'var(--text2)', display: '-webkit-box', WebkitLineClamp: 3,
-              WebkitBoxOrient: 'vertical', overflow: 'hidden',
-            }}>{it.content}</div>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
+/* ---------- 添加文献弹窗 ---------- */
 function PaperPicker({ allPapers, inProject, onAdd, onClose }) {
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(new Set())
@@ -364,45 +490,6 @@ function PaperPicker({ allPapers, inProject, onAdd, onClose }) {
               {saving ? '添加中…' : '添加'}
             </button>
           </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ItemModal({ form, onClose, onSave }) {
-  const [title, setTitle] = useState(form.title || '')
-  const [content, setContent] = useState(form.content || '')
-  const [saving, setSaving] = useState(false)
-  const isLatex = form.item_type === 'latex'
-
-  function insertTemplate() {
-    if (content.trim() && !confirm('插入模板会覆盖当前内容，继续？')) return
-    setContent(TEX_TEMPLATE)
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ width: 820 }} onClick={e => e.stopPropagation()}>
-        <h2>{form.id ? '编辑' : '新建'}{TYPE_LABEL[form.item_type] || '条目'}</h2>
-        <div className="form-row"><label>标题</label>
-          <input value={title} onChange={e => setTitle(e.target.value)} autoFocus /></div>
-        <div className="form-row">
-          <div className="row spread">
-            <label>{isLatex ? 'LaTeX 源码（xelatex 编译，支持中文；推荐 ctexart 文档类）' : '内容（支持 Markdown）'}</label>
-            {isLatex && <button type="button" className="btn sm" onClick={insertTemplate}>插入中文模板</button>}
-          </div>
-          <textarea rows={isLatex ? 18 : 10} value={content}
-            style={{ width: '100%', fontFamily: 'monospace', fontSize: 13.5 }}
-            onChange={e => setContent(e.target.value)} />
-          {isLatex && <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>保存后点列表里的「▶ 编译」生成 PDF。</div>}
-        </div>
-        <div className="row">
-          <button className="btn primary" disabled={saving}
-            onClick={async () => { setSaving(true); await onSave({ ...form, title, content }) }}>
-            {saving ? '保存中…' : '保存'}
-          </button>
-          <button className="btn" onClick={onClose}>取消</button>
         </div>
       </div>
     </div>

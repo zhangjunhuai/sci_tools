@@ -254,3 +254,67 @@ a { color: var(--accent); }
   border: 1px solid #fecaca; border-radius: 6px; padding: 8px 10px;
   font-size: 12px; max-height: 160px; overflow: auto; margin: 0;
 }
+
+/* 项目工作区：VSCode 式侧栏 + 主区 */
+.proj-workspace {
+  display: grid; grid-template-columns: 280px minmax(0, 1fr);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel); overflow: hidden;
+  height: calc(100vh - 105px);
+}
+.proj-side { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: #f7f9fc; overflow: hidden; }
+.proj-side-head { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.proj-back { font-size: 12.5px; }
+.proj-side-title { font-weight: 700; font-size: 14.5px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-side-desc { font-size: 12.5px; color: var(--text2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-tree { flex: 1; overflow: auto; padding: 6px 0; }
+.ptree-group-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 12px; font-size: 12.5px; font-weight: 600; color: var(--text2);
+  cursor: pointer; user-select: none;
+}
+.ptree-group-head:hover { color: var(--text); }
+.ptree-add {
+  border: 1px solid var(--border); border-radius: 4px; width: 18px; height: 18px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; color: var(--text2); background: var(--panel); visibility: hidden;
+}
+.ptree-group-head:hover .ptree-add { visibility: visible; }
+.ptree-add:hover { color: var(--accent); border-color: var(--accent); }
+.ptree-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 12px 4px 24px; font-size: 13.5px; cursor: pointer; position: relative;
+}
+.ptree-item:hover { background: #eef2f7; }
+.ptree-item.active { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+.ptree-icon { flex-shrink: 0; font-size: 12.5px; }
+.ptree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.ptree-extra { font-size: 11.5px; color: var(--text2); flex-shrink: 0; }
+.ptree-badge { flex-shrink: 0; font-size: 11px; }
+.ptree-x {
+  position: absolute; right: 8px; font-size: 11.5px; color: var(--text2);
+  visibility: hidden; padding: 1px 4px; border-radius: 3px;
+}
+.ptree-item:hover .ptree-x { visibility: visible; }
+.ptree-x:hover { color: var(--danger); background: #fee2e2; }
+.ptree-empty { padding: 2px 24px; font-size: 12.5px; color: var(--text2); font-style: italic; }
+.proj-side-foot { padding: 10px 12px; border-top: 1px solid var(--border); }
+.proj-main { overflow: auto; padding: 18px 22px; }
+.proj-item-title {
+  width: 100%; margin: 12px 0 10px; font-size: 16px; font-weight: 700;
+  border: none; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent;
+}
+.proj-item-title:focus { outline: none; border-bottom-color: var(--accent); }
+.proj-item-content {
+  flex: 1; width: 100%; resize: none; line-height: 1.7;
+  font-family: monospace; font-size: 13.5px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
+}
+.proj-item-content:focus { outline: 2px solid var(--accent-weak); border-color: var(--accent); }
+
+@media (max-width: 900px) {
+  .proj-workspace { grid-template-columns: 1fr; height: auto; }
+  .proj-side { max-height: 260px; border-right: none; border-bottom: 1px solid var(--border); }
+  .proj-main { padding: 14px; max-height: none; }
+  .proj-item-content { min-height: 320px; }
+}
