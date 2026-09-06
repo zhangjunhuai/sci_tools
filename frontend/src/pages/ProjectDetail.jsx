@@ -212,17 +212,16 @@ export default function ProjectDetail() {
 
   return (
     <div className={`proj-workspace ${sideHidden ? 'side-hidden' : ''}`}>
-      {/* 侧栏收起后显示的竖条开关 */}
-      <button className={`proj-side-toggle ${sideHidden ? 'collapsed' : ''}`}
-        onClick={() => setSideHidden(v => !v)}
-        title={sideHidden ? '展开侧栏' : '收起侧栏'}>
-        {sideHidden ? '»' : '«'}
-      </button>
-
       {/* ============ 左侧资源树 ============ */}
       <aside className="proj-side">
         <div className="proj-side-head">
-          <Link to="/projects" className="proj-back">← 项目</Link>
+          <div className="row spread">
+            <Link to="/projects" className="proj-back">← 项目</Link>
+            <button className="proj-side-toggle" onClick={() => setSideHidden(v => !v)}
+              title={sideHidden ? '展开侧栏' : '收起侧栏'}>
+              {sideHidden ? '»' : '«'}
+            </button>
+          </div>
           <div className="proj-side-title" title={proj.name}>📁 {proj.name}</div>
           {proj.description && <div className="proj-side-desc">{proj.description}</div>}
           <div className="row" style={{ marginTop: 8 }}>
@@ -283,6 +282,10 @@ export default function ProjectDetail() {
 
       {/* ============ 右侧主显示区 ============ */}
       <main className="proj-main">
+        {sideHidden && (
+          <button className="btn sm" onClick={() => setSideHidden(false)}
+            title="展开侧栏" style={{ marginBottom: 10 }}>» 展开侧栏</button>
+        )}
         {sel.kind === 'overview' && (
           <OverviewPanel proj={proj} editingMeta={editingMeta} metaForm={metaForm}
             setMetaForm={setMetaForm} saveMeta={saveMeta} setEditingMeta={setEditingMeta}

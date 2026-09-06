@@ -261,18 +261,15 @@ a { color: var(--accent); }
   border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--panel); overflow: hidden;
   height: calc(100vh - 105px);
-  position: relative;
 }
 .proj-workspace.side-hidden { grid-template-columns: minmax(0, 1fr); }
 .proj-side-toggle {
-  position: absolute; left: 280px; top: 50%; transform: translateY(-50%); z-index: 5;
-  width: 18px; height: 44px; border: 1px solid var(--border); border-left: none;
-  border-radius: 0 8px 8px 0; background: var(--panel); color: var(--text2);
-  cursor: pointer; font-size: 12px; line-height: 1; padding: 0;
-  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border: 1px solid var(--border);
+  border-radius: 5px; background: var(--panel); color: var(--text2);
+  cursor: pointer; font-size: 11px; line-height: 1; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
 }
 .proj-side-toggle:hover { color: var(--accent); border-color: var(--accent); }
-.proj-workspace.side-hidden .proj-side-toggle { left: 0; border-left: 1px solid var(--border); }
 .proj-side { border-right: 1px solid var(--border); display: flex; flex-direction: column; background: #f7f9fc; overflow: hidden; }
 .proj-side-head { padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .proj-back { font-size: 12.5px; }
@@ -336,9 +333,8 @@ a { color: var(--accent); }
 }
 
 /* 全局导航栏收起/展开 */
-.layout { position: relative; }
+.sidebar .nav-toggle-row { display: flex; justify-content: flex-end; padding: 0 2px 6px; }
 .nav-toggle {
-  position: absolute; top: 14px; right: 8px; z-index: 10;
   width: 20px; height: 20px; border: none; border-radius: 5px;
   background: #2a3547; color: #cbd5e1; cursor: pointer; font-size: 11px;
   display: flex; align-items: center; justify-content: center; padding: 0; line-height: 1;
@@ -347,6 +343,6 @@ a { color: var(--accent); }
 .sidebar .logo { white-space: nowrap; overflow: hidden; }
 .sidebar a { white-space: nowrap; }
 .layout.nav-collapsed .sidebar { width: 58px; padding: 16px 8px; }
+.layout.nav-collapsed .sidebar .nav-toggle-row { justify-content: center; padding: 0 0 6px; }
 .layout.nav-collapsed .sidebar .logo { text-align: center; padding: 6px 0 18px; font-size: 18px; }
 .layout.nav-collapsed .sidebar a { justify-content: center; padding: 9px 0; font-size: 16px; }
-.layout.nav-collapsed .nav-toggle { right: 4px; }

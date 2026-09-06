@@ -20,10 +20,12 @@ export default function App() {
   return (
     <div className={`layout ${navCollapsed ? 'nav-collapsed' : ''}`}>
       <nav className="sidebar">
-        <button className="nav-toggle" onClick={() => setNavCollapsed(v => !v)}
-          title={navCollapsed ? '展开导航' : '收起导航'}>
-          {navCollapsed ? '»' : '«'}
-        </button>
+        <div className="nav-toggle-row">
+          <button className="nav-toggle" onClick={() => setNavCollapsed(v => !v)}
+            title={navCollapsed ? '展开导航' : '收起导航'}>
+            {navCollapsed ? '»' : '«'}
+          </button>
+        </div>
         <div className="logo" title="科研文献中心">{navCollapsed ? '📚' : '📚 文献中心'}</div>
         {NAVS.map(n => (
           <NavLink key={n.to} to={n.to} end={n.end} title={navCollapsed ? n.label : undefined}>
