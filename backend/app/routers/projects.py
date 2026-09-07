@@ -6,6 +6,7 @@ LaTeX 支持两种来源：手写（content 存 .tex 源码）或导入压缩包
 （原始包存 LATEX_DIR/archives/，编译时解压以保留图片/参考文献等资源）。
 """
 import json
+import re
 import shutil
 import subprocess
 import tarfile
@@ -571,6 +572,13 @@ def latex_pdf(project_id: int, item_id: int):
                         content_disposition_type="inline")
 
 
+class AIFixBody(BaseModel):
+    """LaTeX AI 修正请求：full=整篇源码，selection=选中片段。"""
+    source: str
+    selection: str | None = None    # 选中片段（编辑器高亮部分）；None 则整篇处理
+    instruction: str | None = None  # 用户附加要求，如「把这段改成表格」「润色语言」
+
+
 # ---------- 项目 AI 助手 ----------
 
 class ProjectAskBody(BaseModel):
@@ -579,6 +587,53 @@ class ProjectAskBody(BaseModel):
     include_notes: bool = True        # 权限：项目笔记
     include_results: bool = True      # 权限：实验记录
     paper_ids: list[int] = []         # 范围：空 = 项目全部文献
+
+
+@router.post("/{project_id}/items/{item_id}/ai_fix")
+def ai_fix_latex(project_id: int, item_id: int, body: AIFixBody):
+    """AI 修正 LaTeX：只动选中片段（无选中则整篇），返回修正后全文。
+
+    前端拿到结果先做 diff 预览，用户确认后才落稿——这里不改库。
+    """
+    if not S.ai_configured():
+        raise HTTPException(400, "AI 修正需要先在设置中配置 API Key")
+    conn = get_db()
+    _get_project(conn, project_id)
+    r = conn.execute(
+        "SELECT title FROM project_items WHERE id=? AND project_id=? AND item_type='latex'",
+        (item_id, project_id),
+    ).fetchone()
+    if r is None:
+        raise HTTPException(404, "LaTeX 文档不存在")
+    if not (body.source or "").strip():
+        raise HTTPException(400, "源码为空")
+    if body.selection and body.selection not in body.source:
+        raise HTTPException(400, "选中的片段不在当前源码中（源码可能已改动，请重新选择）")
+
+    from .. import ai_client
+    target = body.selection or body.source
+    scope = "以下是用户在编辑器中选中的 LaTeX 片段" if body.selection else "以下是完整的 LaTeX 源码"
+    extra = f"\n用户的额外要求：{body.instruction}" if body.instruction else ""
+    prompt = (
+        "你是一名 LaTeX 专家，负责修正科研文档源码。保持其余内容与结构完全不变，只做必要的修改：\n"
+        "修复编译错误（缺失包/环境不配对/数学模式错误等）、规范命令写法、\n"
+        "修正明显的错别字与语法问题。不要重写或改写内容，不要添加注释。\n"
+        f"{extra}\n\n{scope}：\n```latex\n{target}\n```\n\n"
+        '只输出修正后的完整片段源码（LaTeX），不要解释、不要代码围栏。'
+    )
+    try:
+        fixed = ai_client.chat([{"role": "user", "content": prompt}], temperature=0.2)
+    except ai_client.AINotConfigured as e:
+        raise HTTPException(400, str(e))
+    except ai_client.AICallError as e:
+        raise HTTPException(502, f"AI 调用失败：{e}")
+    fixed = fixed.strip()
+    # 容错：剥掉模型偶尔固执加上的 ``` 围栏
+    if fixed.startswith("```"):
+        fixed = re.sub(r"^```(?:latex)?\n|\n```$", "", fixed)
+    result = body.source.replace(target, fixed, 1) if body.selection else fixed
+    tasks.log_chat(f"project:{project_id}", f"[AI 修正 LaTeX] {body.instruction or '(默认修正)'}", fixed[:6000])
+    return {"fixed": result, "changed": result != body.source}
 
 
 @router.post("/{project_id}/ai_ask")

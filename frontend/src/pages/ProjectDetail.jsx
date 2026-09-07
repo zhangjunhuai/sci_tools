@@ -465,19 +465,77 @@ function PaperView({ paper, nav, onRemove }) {
   )
 }
 
+/* 行级 LCS diff：返回 [{t:' '|'+'|'-', s:line}] */
+function lineDiff(a, b) {
+  const A = a.split('\n'), B = b.split('\n')
+  const m = A.length, n = B.length
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+  for (let i = m - 1; i >= 0; i--)
+    for (let j = n - 1; j >= 0; j--)
+      dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+  const out = []
+  let i = 0, j = 0
+  while (i < m && j < n) {
+    if (A[i] === B[j]) { out.push({ t: ' ', s: A[i] }); i++; j++ }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { out.push({ t: '-', s: A[i] }); i++ }
+    else { out.push({ t: '+', s: B[j] }); j++ }
+  }
+  while (i < m) out.push({ t: '-', s: A[i++] })
+  while (j < n) out.push({ t: '+', s: B[j++] })
+  return out
+}
+
 /* ---------- 右侧：条目内联编辑器 ---------- */
 function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile, latexState, projectId }) {
   const isLatex = item.item_type === 'latex'
-  const [preview, setPreview] = useState(false)
+  const [preview, setPreview] = useState(false)      // 笔记/实验记录的 Markdown 预览
   const st = latexState
   const typeLabel = { note: '📝 笔记', result: '🧪 实验记录', latex: '📄 LaTeX 文档' }[item.item_type]
   const pdfReady = isLatex && (st.status === 'ok' || item.pdf_ready)
-  const pdfUrl = st.pdfUrl || `/api/projects/${projectId}/items/${item.id}/pdf?t=${item.compiled_at || ''}`
+  const pdfUrl = `/api/projects/${projectId}/items/${item.id}/pdf?t=${st.compiledAt || item.compiled_at || ''}`
 
-  // 编译成功后自动进入 PDF 预览
-  useEffect(() => {
-    if (isLatex && st.status === 'ok') setPreview(true)
-  }, [isLatex, st.status])
+  // AI 修正流程：选择源码片段（可空=整篇）→ 附加要求 → diff 预览 → 接受/放弃
+  const [selText, setSelText] = useState('')
+  const [aiOpen, setAiOpen] = useState(false)
+  const [aiInstruction, setAiInstruction] = useState('')
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiResult, setAiResult] = useState(null)     // {before, after}
+  const taRef = useRef(null)
+  const diffLines = aiResult ? lineDiff(aiResult.before, aiResult.after) : null
+  const changedCount = diffLines ? diffLines.filter(l => l.t !== ' ').length : 0
+
+  function captureSel(e) {
+    const ta = e.target
+    setSelText(ta.value.slice(ta.selectionStart, ta.selectionEnd))
+  }
+
+  async function runFix() {
+    if (aiBusy || !draft?.content) return
+    setAiBusy(true)
+    try {
+      const r = await api.post(`/projects/${projectId}/items/${item.id}/ai_fix`, {
+        source: draft.content,
+        selection: selText || null,
+        instruction: aiInstruction.trim() || null,
+      })
+      if (!r.changed) {
+        alert('AI 认为当前内容无需修改')
+        setAiResult(null); setAiOpen(false)
+      } else {
+        setAiResult({ before: draft.content, after: r.fixed })
+      }
+    } catch (e) {
+      alert(e.message)
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  function acceptFix() {
+    setDraft(d => ({ ...d, content: aiResult.after }))
+    setAiResult(null); setAiOpen(false); setAiInstruction('')
+    setSelText('')
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -489,11 +547,11 @@ function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile
               <button className="btn sm primary" disabled={st.status === 'compiling'} onClick={onCompile}>
                 <Icon name="play" size={13} /> {st.status === 'compiling' ? '编译中…' : '编译'}
               </button>
+              <button className="btn sm" disabled={aiBusy} onClick={() => { setAiOpen(v => !v); setAiResult(null) }}>
+                <Icon name="bot" size={13} /> {aiBusy ? 'AI 处理中…' : '✨ AI 修正'}
+              </button>
               {pdfReady && (
                 <>
-                  <button className="btn sm" onClick={() => setPreview(v => !v)}>
-                    <Icon name="eye" size={13} /> {preview ? '编辑源码' : '预览 PDF'}
-                  </button>
                   <a href={pdfUrl}
                      download={`${displayTitle(draft?.title || item.title) || 'document'}.pdf`}>
                     <button className="btn sm"><Icon name="download" size={13} /> 下载</button>
@@ -515,21 +573,66 @@ function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile
         </div>
       </div>
 
-      {item.archive && !preview && (
-        <div className="muted" style={{ fontSize: 12.5, margin: '6px 0' }}>
-          📦 项目包：{item.archive.file_count} 个文件 · 主文件 {item.archive.main_tex}
-          （编辑下方主 tex 源码，保存并编译即生效）
-        </div>
-      )}
-
-      {isLatex && preview && pdfReady ? (
-        /* LaTeX 预览：内嵌 PDF（浏览器原生查看器），不跳外部页面 */
-        <iframe
-          key={st.compiledAt || item.compiled_at || 'pdf'}
-          src={pdfUrl}
-          title="PDF 预览"
-          className="latex-pdf-frame"
-        />
+      {isLatex ? (
+        /* Prism 式双栏：左源码（可选片段交 AI 修正），右 PDF 实时预览 */
+        <>
+          {item.archive && (
+            <div className="muted" style={{ fontSize: 12.5, margin: '6px 0 0' }}>
+              📦 项目包：{item.archive.file_count} 个文件 · 主文件 {item.archive.main_tex}
+              （编辑主 tex 源码，保存并编译即生效）
+            </div>
+          )}
+          <input className="proj-item-title" value={draft?.title ?? ''}
+            placeholder="标题" onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} />
+          <div className="latex-split">
+            <div className="latex-src">
+              <textarea ref={taRef} className="proj-item-content latex-src-ta" value={draft?.content ?? ''}
+                placeholder="LaTeX 源码…（选中片段后点「AI 修正」只改选中部分）"
+                onSelect={captureSel}
+                onChange={e => setDraft(d => ({ ...d, content: e.target.value }))} />
+              {aiOpen && !aiResult && (
+                <div className="ai-fix-bar">
+                  <input className="flex1" value={aiInstruction}
+                    placeholder={`附加要求（可空）${selText ? `；已选中 ${selText.length} 字，只改选中部分` : '；未选中则修正整篇'}`}
+                    onChange={e => setAiInstruction(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') runFix() }} autoFocus />
+                  <button className="btn sm primary" disabled={aiBusy || !draft?.content} onClick={runFix}>
+                    {aiBusy ? '处理中…' : '开始修正'}
+                  </button>
+                  <button className="btn sm" onClick={() => setAiOpen(false)}>取消</button>
+                </div>
+              )}
+              {aiResult && (
+                <div className="ai-fix-result">
+                  <div className="row spread">
+                    <strong style={{ fontSize: 13 }}>AI 修改建议（{changedCount} 行变更）</strong>
+                    <div className="row">
+                      <button className="btn sm primary" onClick={acceptFix}>接受修改</button>
+                      <button className="btn sm" onClick={() => setAiResult(null)}>放弃</button>
+                    </div>
+                  </div>
+                  <pre className="diff-view">
+                    {diffLines.map((l, i) => (
+                      <div key={i} className={l.t === '+' ? 'd-add' : l.t === '-' ? 'd-del' : 'd-ctx'}>
+                        {l.t === ' ' ? '' : l.t + ' '}{l.s}
+                      </div>
+                    ))}
+                  </pre>
+                </div>
+              )}
+            </div>
+            <div className="latex-right">
+              {pdfReady ? (
+                <iframe key={st.compiledAt || item.compiled_at || 'pdf'} src={pdfUrl} title="PDF 预览" />
+              ) : (
+                <div className="latex-right-empty">
+                  {st.status === 'compiling' ? '编译中…' : '点上方「编译」生成 PDF 预览'}
+                </div>
+              )}
+            </div>
+          </div>
+          {st.status === 'error' && <pre className="latex-err">{st.error}</pre>}
+        </>
       ) : (
         <>
           <input className="proj-item-title" value={draft?.title ?? ''}
@@ -541,20 +644,15 @@ function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile
             </div>
           ) : (
             <textarea className="proj-item-content" value={draft?.content ?? ''}
-              placeholder={isLatex ? 'LaTeX 源码…' : '内容（支持 Markdown 与 $LaTeX$ 公式）…'}
+              placeholder="内容（支持 Markdown 与 $LaTeX$ 公式）…"
               onChange={e => setDraft(d => ({ ...d, content: e.target.value }))} />
           )}
-          {!isLatex && !preview && (
+          {!preview && (
             <div className="muted" style={{ fontSize: 12.5 }}>
               支持 Markdown（标题/列表/代码/表格）与 LaTeX 公式：行内 $E=mc^2$，块级 $$\int x dx$$；[[论文标题]] 可跳转文献。
             </div>
           )}
         </>
-      )}
-
-      {isLatex && st.status === 'error' && <pre className="latex-err">{st.error}</pre>}
-      {isLatex && !preview && !item.archive && (
-        <div className="muted" style={{ fontSize: 12.5 }}>提示：直接把 LaTeX 项目压缩包（.zip / .tar.gz）拖到左侧 LaTeX 分组可导入完整项目（图片/参考文献）。</div>
       )}
     </div>
   )

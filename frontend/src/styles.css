@@ -272,16 +272,39 @@ a { color: var(--accent); }
 .ctx-fill.over { background: var(--danger); }
 
 /* LaTeX 编译错误展示 */
+/* LaTeX 双栏编辑器：左源码 + 右 PDF 预览 */
+.latex-split { flex: 1; display: flex; gap: 10px; min-height: 0; margin-top: 8px; }
+.latex-src { flex: 1.1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.latex-src-ta { flex: 1; min-height: 0; resize: none; font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 13px; line-height: 1.55; white-space: pre; }
+.latex-right {
+  flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); overflow: hidden;
+}
+.latex-right iframe { flex: 1; width: 100%; border: none; }
+.latex-right-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text2); font-size: 13.5px; }
+
+/* AI 修正：指令条 + diff 结果 */
+.ai-fix-bar { display: flex; gap: 6px; margin-top: 8px; flex-shrink: 0; }
+.ai-fix-result {
+  margin-top: 8px; flex-shrink: 0; display: flex; flex-direction: column;
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px;
+  background: var(--panel); max-height: 45%;
+}
+.diff-view {
+  flex: 1; overflow: auto; margin: 8px 0 0; min-height: 0;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 12px; line-height: 1.5;
+  white-space: pre-wrap; word-break: break-all;
+}
+.d-add { background: rgba(74, 222, 128, 0.16); }
+.d-del { background: rgba(248, 113, 113, 0.16); text-decoration: line-through; opacity: 0.75; }
+.d-ctx { color: var(--text2); }
+
 .latex-err {
   flex: 1 1 100%; white-space: pre-wrap; background: #fef2f2; color: #b91c1c;
   border: 1px solid #fecaca; border-radius: 6px; padding: 8px 10px;
   font-size: 12px; max-height: 160px; overflow: auto; margin: 0;
 }
 /* LaTeX 编译结果内嵌 PDF 预览：占满编辑区剩余高度 */
-.latex-pdf-frame {
-  flex: 1; width: 100%; min-height: 0; margin-top: 8px;
-  border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
-}
 
 /* 项目工作区：VSCode 式侧栏 + 主区 */
 .proj-workspace {
