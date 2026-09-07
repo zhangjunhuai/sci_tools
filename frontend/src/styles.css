@@ -755,3 +755,31 @@ a { color: var(--accent); }
 .lx-right { overflow: hidden; }
 .lx-right iframe { flex: 1; width: 100%; border: none; background: var(--panel); }
 .lx-right-empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text2); font-size: 13.5px; }
+
+/* ===== CodeArea：透明 textarea 叠加高亮层（两者排版必须逐像素一致） ===== */
+.codearea { position: relative; flex: 1; min-height: 0; }
+.codearea-hl, .codearea-ta {
+  margin: 0; width: 100%; height: 100%;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 13px; line-height: 1.55;
+  padding: 10px 12px; border: none; white-space: pre; word-wrap: normal; tab-size: 4;
+  overflow: auto;
+}
+.codearea-hl { position: absolute; inset: 0; z-index: 0; pointer-events: none; color: var(--text); background: var(--panel); }
+.codearea-ta { position: relative; z-index: 1; background: transparent; color: transparent; caret-color: var(--text); resize: none; outline: none; border-radius: var(--radius); }
+.codearea-ta::selection { background: rgba(37, 99, 235, 0.25); }
+.codearea-ta::placeholder { color: var(--text2); }
+
+/* LaTeX token 配色（浅色） */
+.tk-cmd { color: #7c3aed; font-weight: 600; }   /* \command */
+.tk-arg { color: #0369a1; }                      /* {参数} */
+.tk-br { color: #94a3b8; }                       /* 花括号 */
+.tk-cm { color: #6b7280; font-style: italic; }   /* % 注释 */
+.tk-math { color: #b45309; }                     /* $...$ 数学 */
+/* 深色主题 */
+[data-theme="dark"] .codearea-hl { background: transparent; }
+[data-theme="dark"] .tk-cmd { color: #c4b5fd; }
+[data-theme="dark"] .tk-arg { color: #7dd3fc; }
+[data-theme="dark"] .tk-br { color: #64748b; }
+[data-theme="dark"] .tk-cm { color: #94a3b8; }
+[data-theme="dark"] .tk-math { color: #fcd34d; }

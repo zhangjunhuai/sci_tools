@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api, displayTitle } from '../api'
 import Icon from '../components/Icon'
+import CodeArea from '../components/CodeArea'
 
 /* 行级 LCS diff：[{t:' '|'+'|'-', s:line}] */
 function lineDiff(a, b) {
@@ -205,7 +206,7 @@ export default function LatexWorkbench() {
         {/* 中：源码 + 对话框 */}
         <div className="lx-pane lx-center" style={{ width: `${cw}%` }}>
           <div className="lx-pane-title">源码 {selText && <span className="muted">（已选中 {selText.length} 字，AI 只改选中部分）</span>}</div>
-          <textarea ref={taRef} className="lx-src" value={content}
+          <CodeArea ref={taRef} className="lx-src" value={content}
             placeholder="LaTeX 源码…"
             onSelect={captureSel}
             onChange={e => { setContent(e.target.value); setDirty(true) }} />
