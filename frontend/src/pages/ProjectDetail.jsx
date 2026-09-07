@@ -471,6 +471,13 @@ function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile
   const [preview, setPreview] = useState(false)
   const st = latexState
   const typeLabel = { note: '📝 笔记', result: '🧪 实验记录', latex: '📄 LaTeX 文档' }[item.item_type]
+  const pdfReady = isLatex && (st.status === 'ok' || item.pdf_ready)
+  const pdfUrl = st.pdfUrl || `/api/projects/${projectId}/items/${item.id}/pdf?t=${item.compiled_at || ''}`
+
+  // 编译成功后自动进入 PDF 预览
+  useEffect(() => {
+    if (isLatex && st.status === 'ok') setPreview(true)
+  }, [isLatex, st.status])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -482,12 +489,12 @@ function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile
               <button className="btn sm primary" disabled={st.status === 'compiling'} onClick={onCompile}>
                 <Icon name="play" size={13} /> {st.status === 'compiling' ? '编译中…' : '编译'}
               </button>
-              {(st.status === 'ok' || item.pdf_ready) && (
+              {pdfReady && (
                 <>
-                  <a href={st.pdfUrl || `/api/projects/${projectId}/items/${item.id}/pdf`} target="_blank" rel="noreferrer">
-                    <button className="btn sm"><Icon name="eye" size={13} /> 预览 PDF</button>
-                  </a>
-                  <a href={st.pdfUrl || `/api/projects/${projectId}/items/${item.id}/pdf`}
+                  <button className="btn sm" onClick={() => setPreview(v => !v)}>
+                    <Icon name="eye" size={13} /> {preview ? '编辑源码' : '预览 PDF'}
+                  </button>
+                  <a href={pdfUrl}
                      download={`${displayTitle(draft?.title || item.title) || 'document'}.pdf`}>
                     <button className="btn sm"><Icon name="download" size={13} /> 下载</button>
                   </a>
@@ -508,33 +515,45 @@ function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile
         </div>
       </div>
 
-      {item.archive && (
+      {item.archive && !preview && (
         <div className="muted" style={{ fontSize: 12.5, margin: '6px 0' }}>
           📦 项目包：{item.archive.file_count} 个文件 · 主文件 {item.archive.main_tex}
           （编辑下方主 tex 源码，保存并编译即生效）
         </div>
       )}
 
-      <input className="proj-item-title" value={draft?.title ?? ''}
-        placeholder="标题" onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} />
-
-      {preview ? (
-        <div className="proj-item-content md-preview">
-          {draft?.content ? <MarkdownView text={draft.content} /> : <span className="muted">暂无内容</span>}
-        </div>
+      {isLatex && preview && pdfReady ? (
+        /* LaTeX 预览：内嵌 PDF（浏览器原生查看器），不跳外部页面 */
+        <iframe
+          key={st.compiledAt || item.compiled_at || 'pdf'}
+          src={pdfUrl}
+          title="PDF 预览"
+          className="latex-pdf-frame"
+        />
       ) : (
-        <textarea className="proj-item-content" value={draft?.content ?? ''}
-          placeholder={isLatex ? 'LaTeX 源码…' : '内容（支持 Markdown 与 $LaTeX$ 公式）…'}
-          onChange={e => setDraft(d => ({ ...d, content: e.target.value }))} />
-      )}
-      {!isLatex && !preview && (
-        <div className="muted" style={{ fontSize: 12.5 }}>
-          支持 Markdown（标题/列表/代码/表格）与 LaTeX 公式：行内 $E=mc^2$，块级 $$\int x dx$$；[[论文标题]] 可跳转文献。
-        </div>
+        <>
+          <input className="proj-item-title" value={draft?.title ?? ''}
+            placeholder="标题" onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} />
+
+          {preview ? (
+            <div className="proj-item-content md-preview">
+              {draft?.content ? <MarkdownView text={draft.content} /> : <span className="muted">暂无内容</span>}
+            </div>
+          ) : (
+            <textarea className="proj-item-content" value={draft?.content ?? ''}
+              placeholder={isLatex ? 'LaTeX 源码…' : '内容（支持 Markdown 与 $LaTeX$ 公式）…'}
+              onChange={e => setDraft(d => ({ ...d, content: e.target.value }))} />
+          )}
+          {!isLatex && !preview && (
+            <div className="muted" style={{ fontSize: 12.5 }}>
+              支持 Markdown（标题/列表/代码/表格）与 LaTeX 公式：行内 $E=mc^2$，块级 $$\int x dx$$；[[论文标题]] 可跳转文献。
+            </div>
+          )}
+        </>
       )}
 
       {isLatex && st.status === 'error' && <pre className="latex-err">{st.error}</pre>}
-      {isLatex && !item.archive && (
+      {isLatex && !preview && !item.archive && (
         <div className="muted" style={{ fontSize: 12.5 }}>提示：直接把 LaTeX 项目压缩包（.zip / .tar.gz）拖到左侧 LaTeX 分组可导入完整项目（图片/参考文献）。</div>
       )}
     </div>

@@ -277,6 +277,11 @@ a { color: var(--accent); }
   border: 1px solid #fecaca; border-radius: 6px; padding: 8px 10px;
   font-size: 12px; max-height: 160px; overflow: auto; margin: 0;
 }
+/* LaTeX 编译结果内嵌 PDF 预览：占满编辑区剩余高度 */
+.latex-pdf-frame {
+  flex: 1; width: 100%; min-height: 0; margin-top: 8px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
+}
 
 /* 项目工作区：VSCode 式侧栏 + 主区 */
 .proj-workspace {
