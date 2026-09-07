@@ -86,17 +86,29 @@ def fetch_now():
     return {"ok": True, "message": "期刊抓取任务已加入队列，完成后条目会出现在下方"}
 
 
+@router.post("/score")
+def score_now():
+    """手动补打分（配置了 API Key 才有效）。"""
+    J.enqueue("fetch_journal_feed", {})
+    return {"ok": True, "message": "打分任务已加入队列"}
+
+
 # ---------- 条目流 ----------
 
 @router.get("/feed")
-def list_items(hide_dismissed: bool = True):
+def list_items(hide_dismissed: bool = True, min_score: float | None = None):
     conn = get_db()
     sql = (
         "SELECT f.*, s.name AS sub_name FROM journal_feed f "
         "JOIN journal_subs s ON s.id = f.sub_id"
     )
+    conds = []
     if hide_dismissed:
-        sql += " WHERE f.dismissed=0"
+        conds.append("f.dismissed=0")
+    if min_score is not None:
+        conds.append(f"(f.relevance IS NULL OR f.relevance >= {float(min_score)})")
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
     sql += " ORDER BY (f.published IS NULL), f.published DESC, f.id DESC LIMIT 200"
     rows = conn.execute(sql).fetchall()
     items = []

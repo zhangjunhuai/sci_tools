@@ -106,6 +106,8 @@ def init_db():
             abstract TEXT DEFAULT '',
             venue TEXT DEFAULT '',
             published TEXT,
+            relevance REAL,               -- AI 相关度 0-10
+            relevance_reason TEXT,
             dismissed INTEGER NOT NULL DEFAULT 0,
             added_paper_id INTEGER,
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
@@ -141,6 +143,11 @@ def init_db():
     pcols = [r[1] for r in conn.execute("PRAGMA table_info(projects)").fetchall()]
     if "icon" not in pcols:
         conn.execute("ALTER TABLE projects ADD COLUMN icon TEXT DEFAULT '📁'")
+    jcols = [r[1] for r in conn.execute("PRAGMA table_info(journal_feed)").fetchall()]
+    if "relevance" not in jcols:
+        conn.execute("ALTER TABLE journal_feed ADD COLUMN relevance REAL")
+    if "relevance_reason" not in jcols:
+        conn.execute("ALTER TABLE journal_feed ADD COLUMN relevance_reason TEXT")
     # trigram tokenizer: 支持中文子串检索（unicode61 对 CJK 不友好）
     conn.execute(
         "CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5("

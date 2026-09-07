@@ -19,6 +19,7 @@ export default function Feed() {
   const [jBusy, setJBusy] = useState(false)
   const [jAdding, setJAdding] = useState('')
   const [jErr, setJErr] = useState('')
+  const [jOnlyScored, setJOnlyScored] = useState(false)
 
   const load = useCallback(async () => {
     const d = await api.get(`/feed?limit=200&hide_dismissed=${!showDismissed}`)
@@ -29,7 +30,7 @@ export default function Feed() {
     try {
       const [s, f] = await Promise.all([
         api.get('/journals'),
-        api.get(`/journals/feed?hide_dismissed=${true}`),
+        api.get(`/journals/feed?hide_dismissed=true${jOnlyScored ? '&min_score=7' : ''}`),
       ])
       setJSubs(s.items)
       setJItems(f.items)
@@ -40,7 +41,7 @@ export default function Feed() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { if (tab === 'journal') loadJournals() }, [tab, loadJournals])
+  useEffect(() => { if (tab === 'journal') loadJournals() }, [tab, loadJournals, jOnlyScored])
 
   useEffect(() => {
     const t = setInterval(async () => {
@@ -223,6 +224,9 @@ export default function Feed() {
                 已订阅期刊（{jSubs ? jSubs.length : 0}）
                 <Tip text="输入期刊名称，从 Crossref 数据库匹配；每次抓取自动拉取该期刊最新论文，点「加入文献库」走 DOI 入库管道（自动尝试 OA PDF + AI 标签）。" />
               </strong>
+              <button className="btn sm" onClick={() => setJOnlyScored(v => !v)}>
+                {jOnlyScored ? '显示全部' : '只看高分'}
+              </button>
               <button className="btn sm" disabled={jBusy} onClick={fetchJournals}>
                 <Icon name="refresh" size={13} /> {jBusy ? '抓取中…' : '抓取最新'}
               </button>
@@ -263,6 +267,11 @@ export default function Feed() {
           ) : (
             jItems.map(it => (
               <div key={`j-${it.id}`} className="feed-item">
+                {it.relevance != null && (() => {
+                  const sc = Number(it.relevance)
+                  const cls = sc >= 8 ? 'high' : sc >= 6 ? 'mid' : 'low'
+                  return <span className={`score-badge ${cls}`} title="AI 相关度评分（0-10）">{sc.toFixed(0)}</span>
+                })()}
                 <strong className="feed-title clickable" title="点击查看 AI 中文速览"
                   onClick={() => toggleSummary(it, `j-${it.id}`, it)}>{it.title}</strong>
                 <div className="p-meta">
@@ -270,6 +279,7 @@ export default function Feed() {
                   <span>{it.authors?.slice(0, 4).join(', ')}{it.authors?.length > 4 ? ' et al.' : ''}</span>
                   {it.published && <span className="year-badge">{it.published.slice(0, 10)}</span>}
                 </div>
+                {it.relevance_reason && <div className="reason"><Icon name="bot" size={13} /> {it.relevance_reason}</div>}
                 {summaries[`j-${it.id}`] && (
                   <div className="reason" style={{ marginTop: 6 }}>
                     {summaries[`j-${it.id}`].loading && <span className="muted">AI 速览生成中…</span>}

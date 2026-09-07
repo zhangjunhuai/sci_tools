@@ -467,6 +467,37 @@ def fetch_journal_feed():
             new += cur.rowcount
         conn.commit()
         print(f"[journal_feed] {sub['name']}: fetched {len(works)}, new {new}")
+    if S.ai_configured():
+        _score_journal_feed(conn)
+
+
+def _score_journal_feed(conn):
+    """给未打分的期刊条目批量打相关度分（逐篇，标题+摘要）。"""
+    research = S.get("research_interests")
+    rows = conn.execute(
+        "SELECT id, title, abstract FROM journal_feed WHERE relevance IS NULL AND dismissed=0 LIMIT 30"
+    ).fetchall()
+    for r in rows:
+        prompt = (
+            f"用户研究方向：{research}\n\n"
+            f"论文标题：{r['title']}\n"
+            f"摘要：{(r['abstract'] or '（无）')[:1500]}\n\n"
+            f"请输出 JSON：{{\"score\": 0-10 整数（与用户研究方向的相关度），"
+            f"\"reason\": 一句中文理由（仅 7 分以上给，其他给空字符串）}}，只输出 JSON。"
+        )
+        try:
+            resp = ai_client.chat(
+                [{"role": "user", "content": prompt}], temperature=0.1, json_mode=True
+            )
+            data = ai_client.parse_json(resp)
+            conn.execute(
+                "UPDATE journal_feed SET relevance=?, relevance_reason=? WHERE id=?",
+                (float(data.get("score", 0)), str(data.get("reason", ""))[:300], r["id"]),
+            )
+            conn.commit()
+        except (ai_client.AINotConfigured, ai_client.AICallError) as e:
+            print(f"[journal_score] {r['id']}: {e}")
+            break
 
 
 def add_journal_item_to_library(item_id: int) -> int:
