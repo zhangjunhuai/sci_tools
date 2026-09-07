@@ -297,6 +297,8 @@ a { color: var(--accent); }
 .proj-side-head { padding: 10px 12px; border-bottom: 1px solid var(--border); }
 .proj-back { font-size: 12.5px; }
 .proj-side-title { font-weight: 600; font-size: 14.5px; margin-top: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-title-link { color: inherit; text-decoration: none; border-radius: 4px; }
+.proj-title-link:hover { color: var(--accent); }
 .proj-side-desc { font-size: 12.5px; color: var(--text2); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .proj-tree { flex: 1; overflow: auto; padding: 6px 0; }
 .ptree-group-head {

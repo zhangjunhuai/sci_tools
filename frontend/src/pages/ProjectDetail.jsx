@@ -239,7 +239,9 @@ export default function ProjectDetail() {
               {sideHidden ? '»' : '«'}
             </button>
           </div>
-          <div className="proj-side-title" title={proj.name}>📁 {proj.name}</div>
+          <div className="proj-side-title" title={proj.name}>
+            <Link to={`/projects/${id}`} className="proj-title-link">📁 {proj.name}</Link>
+          </div>
           {proj.description && <div className="proj-side-desc">{proj.description}</div>}
           <div className="row" style={{ marginTop: 8 }}>
             <button className="btn sm" onClick={startEditMeta}>编辑</button>
