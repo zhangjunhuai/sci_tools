@@ -240,7 +240,9 @@ export default function ProjectDetail() {
             </button>
           </div>
           <div className="proj-side-title" title={proj.name}>
-            <Link to={`/projects/${id}`} className="proj-title-link">📁 {proj.name}</Link>
+            {/* 同路由下 Link 不会触发重渲染，点击时手动把选中态重置回概览 */}
+            <Link to={`/projects/${id}`} className="proj-title-link"
+              onClick={() => setSel({ kind: 'overview', id: null })}>📁 {proj.name}</Link>
           </div>
           {proj.description && <div className="proj-side-desc">{proj.description}</div>}
           <div className="row" style={{ marginTop: 8 }}>
