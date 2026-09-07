@@ -223,7 +223,7 @@ export default function Graph() {
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 90px)' }}>
       <div className="page-head">
         <h1>知识图谱 <span className="muted">（{nodes.length} 篇 · 双链 {linkCount} · 相似 {simCount}）</span>
-          <Tip text="节点为库内文献，颜色代表阅读状态（灰=未读、橙=在读、绿=已读，金圈=星标）。蓝线是笔记 [[双链]]，灰线是 AI 向量相似度自动连线。拖动节点、滚轮缩放、点击进入详情。" />
+          <Tip text="节点为库内文献，颜色代表阅读状态（灰=未读、橙=在读、绿=已读，金圈=星标）。蓝线是笔记 [[双链]]，灰线是 AI 标签重合度自动连线。拖动节点、滚轮缩放、点击进入详情。" />
         </h1>
         <div className="row">
           <label className="row" style={{ fontSize: 13.5, cursor: 'pointer', gap: 5 }}>

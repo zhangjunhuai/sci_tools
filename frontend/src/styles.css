@@ -27,6 +27,7 @@ body {
 .sidebar {
   width: 190px; flex-shrink: 0; background: linear-gradient(180deg, var(--nav-bg1) 0%, var(--nav-bg2) 100%); color: var(--nav-text);
   padding: 16px 10px; display: flex; flex-direction: column; gap: 4px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;  /* 固定在视口，不随页面滚动 */
 }
 .sidebar .logo { font-weight: 600; color: #fff; padding: 6px 10px 18px; font-size: 16px; letter-spacing: 1px; }
 .sidebar a {
@@ -204,6 +205,18 @@ a { color: var(--accent); }
 
 /* 文献库：左侧筛选 + 右侧列表 */
 .library-grid { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 20px; align-items: start; }
+/* 全高固定布局：页头/工具条/侧栏钉死，只有 .scroll-list 内部滚动 */
+.page-fixed { display: flex; flex-direction: column; height: calc(100vh - 44px); }
+.page-fixed .page-head, .page-fixed .toolbar, .page-fixed form.toolbar { flex-shrink: 0; }
+.page-fixed .library-grid {
+  flex: 1; min-height: 0;          /* 允许收缩，滚动交给列表列 */
+  grid-template-columns: 230px minmax(0, 1fr);
+  align-items: stretch;
+}
+.page-fixed .filter-side { position: static; max-height: none; overflow: hidden auto; height: 100%; }
+.page-fixed .library-main { display: flex; flex-direction: column; min-height: 0; overflow: hidden; padding-bottom: 0; }
+.page-fixed .scroll-list { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 6px 20px 2px; }
+.library-grid { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 20px; align-items: start; }
 .filter-side {
   position: sticky; top: 12px; max-height: calc(100vh - 30px); overflow: auto;
   display: flex; flex-direction: column; gap: 18px; padding: 4px 4px 20px 0;
@@ -231,6 +244,12 @@ a { color: var(--accent); }
   .library-grid { grid-template-columns: 1fr; }
   .filter-side { position: static; max-height: none; flex-direction: row; flex-wrap: wrap; gap: 14px; }
   .fgroup { flex: 1 1 200px; }
+  /* 窄屏取消固定布局，恢复整页滚动 */
+  .page-fixed { height: auto; }
+  .page-fixed .library-grid { flex: initial; }
+  .page-fixed .library-main { overflow: visible; }
+  .page-fixed .scroll-list { overflow: visible; }
+  .page-fixed .filter-side { overflow: visible; height: auto; }
 }
 
 /* 期刊分区 / 影响因子徽标 */

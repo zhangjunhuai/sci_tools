@@ -1,5 +1,18 @@
 # Local application data (SQLite databases, PDFs, and user content)
 /backend/data/
+/backup/
+/backups/
+/exports/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db.bak
+backend/data-export*
+zotero-export*
+zotero_export*
 
 # Python
 __pycache__/
@@ -21,7 +34,27 @@ venv/
 # Environment variables and secrets
 .env
 .env.*
+*.env
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+client_secret*.json
+secrets*.json
+service-account*.json
+*.cookie
+cookies*.txt
+session*.json
+.npmrc
+.pypirc
+.netrc
+.ssh/
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
 
 # Logs and runtime files
 *.log

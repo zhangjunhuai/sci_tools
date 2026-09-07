@@ -18,6 +18,8 @@ def run_job(job_type: str, payload: dict):
         fetch_feed()
     elif job_type == "fetch_journal_feed":
         fetch_journal_feed()
+    elif job_type == "refresh_memory":
+        refresh_memory()
     else:
         raise ValueError(f"unknown job type {job_type}")
 
@@ -86,13 +88,6 @@ def process_paper(paper_id: int):
         except (ai_client.AINotConfigured, ai_client.AICallError) as e:
             print(f"[ai_enrich] paper {paper_id}: {e}")
 
-    # 4. 向量（摘要 + 开头正文）
-    if S.ai_configured():
-        try:
-            _embed_paper(conn, paper_id)
-        except (ai_client.AINotConfigured, ai_client.AICallError) as e:
-            print(f"[embed] paper {paper_id}: {e}")
-
 
 def _download_oa_pdf(url: str, rel: str):
     """下载 OA 副本，校验确实是 PDF。"""
@@ -160,7 +155,7 @@ def _ai_enrich(conn, paper_id: int):
     preset_line = f"候选标签（优先从中选，可补充少量新标签）：{preset}" if preset else "标签自由拟定，3-6 个。"
     prompt = (
         f"你是一名类脑导航（brain-inspired navigation）领域的研究助手。\n"
-        f"用户的研究方向：{research}\n\n"
+        f"用户的研究方向：{research}\n\n{_memory_block()}\n"
         f"论文标题：{paper['title']}\n"
         f"论文内容（摘要或开头）：{content[:4000]}\n\n"
         f"请输出 JSON，字段：\n"
@@ -178,21 +173,6 @@ def _ai_enrich(conn, paper_id: int):
     conn.execute(
         "UPDATE papers SET tags=?, ai_summary=?, updated_at=datetime('now','localtime') WHERE id=?",
         (json.dumps(tags, ensure_ascii=False), summary, paper_id),
-    )
-    conn.commit()
-
-
-def _embed_paper(conn, paper_id: int):
-    paper = DB.row_to_dict(
-        conn.execute("SELECT abstract, pdf_text, title FROM papers WHERE id=?", (paper_id,)).fetchone()
-    )
-    text = " ".join([paper["title"] or "", paper["abstract"] or "", (paper["pdf_text"] or "")[:4000]])
-    text = text.strip()
-    if not text:
-        return
-    vec = ai_client.embed([text])[0]
-    conn.execute(
-        "UPDATE papers SET embedding=? WHERE id=?", (vec.tobytes(), paper_id)
     )
     conn.commit()
 
@@ -353,8 +333,10 @@ def _score_feed(conn):
         return
     titles = "\n".join(f"{i+1}. {r['title']}" for i, r in enumerate(rows))
     prompt = (
-        f"用户研究方向：{research}\n\n下面是 arXiv 新论文列表：\n{titles}\n\n"
-        f"请对每篇论文打相关度分（0-10，10 为核心相关），并为 7 分以上的给出一句中文推荐理由。\n"
+        f"用户研究方向：{research}\n\n{_memory_block()}"
+        f"下面是 arXiv 新论文列表：\n{titles}\n\n"
+        f"请结合用户的研究方向与研究记忆，对每篇论文打相关度分（0-10，10 为核心相关），"
+        f"并为 7 分以上的给出一句中文推荐理由（理由中可点出与用户哪方面兴趣相关）。\n"
         f'输出 JSON：{{"scores": [{{"n": 1, "score": 8, "reason": "..."}}, ...]}}，只列 7 分以上的即可，其他不用列。'
     )
     try:
@@ -410,25 +392,49 @@ def add_feed_item_to_library(feed_id: int) -> int:
     except Exception as e:
         print(f"[feed_download] {arxiv_id}: {e}")
 
-    cur = conn.execute(
-        """INSERT INTO papers(title, authors, year, venue, arxiv_id, abstract, source, pdf_path)
-           VALUES(?,?,?,?,?,?, 'arxiv_feed', ?)""",
-        (
-            row["title"],
-            row["authors"],
-            int(row["published"][:4]) if row["published"] else None,
-            "arXiv",
-            arxiv_id,
-            row["abstract"],
-            pdf_rel,
-        ),
-    )
-    conn.commit()
-    paper_id = cur.lastrowid
-    conn.execute(
-        "UPDATE feed_items SET added_paper_id=? WHERE id=?", (paper_id, feed_id)
-    )
-    conn.commit()
+    # 写锁内"查重+插入"原子化：下载可能耗时几十秒，期间连点的请求都会走到这里排队，
+    # 排到后能看到前面请求已写的 added_paper_id，只返回同一篇文献
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        added = conn.execute(
+            "SELECT added_paper_id FROM feed_items WHERE id=?", (feed_id,)
+        ).fetchone()["added_paper_id"]
+        if added:
+            conn.rollback()
+            return added
+
+        dup = conn.execute(
+            "SELECT id FROM papers WHERE arxiv_id=?", (arxiv_id,)
+        ).fetchone()
+        if dup:
+            conn.execute(
+                "UPDATE feed_items SET added_paper_id=? WHERE id=?", (dup["id"], feed_id)
+            )
+            conn.commit()
+            return dup["id"]
+
+        cur = conn.execute(
+            """INSERT INTO papers(title, authors, year, venue, arxiv_id, abstract, source, pdf_path)
+               VALUES(?,?,?,?,?,?, 'arxiv_feed', ?)""",
+            (
+                row["title"],
+                row["authors"],
+                int(row["published"][:4]) if row["published"] else None,
+                "arXiv",
+                arxiv_id,
+                row["abstract"],
+                pdf_rel,
+            ),
+        )
+        paper_id = cur.lastrowid
+        conn.execute(
+            "UPDATE feed_items SET added_paper_id=? WHERE id=?", (paper_id, feed_id)
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
     from . import jobs as J
     J.enqueue("process_paper", {"paper_id": paper_id})
     return paper_id
@@ -477,13 +483,15 @@ def _score_journal_feed(conn):
     rows = conn.execute(
         "SELECT id, title, abstract FROM journal_feed WHERE relevance IS NULL AND dismissed=0 LIMIT 30"
     ).fetchall()
+    mem_block = _memory_block()
     for r in rows:
         prompt = (
-            f"用户研究方向：{research}\n\n"
+            f"用户研究方向：{research}\n\n{mem_block}"
             f"论文标题：{r['title']}\n"
             f"摘要：{(r['abstract'] or '（无）')[:1500]}\n\n"
+            f"请结合用户的研究方向与研究记忆打分。"
             f"请输出 JSON：{{\"score\": 0-10 整数（与用户研究方向的相关度），"
-            f"\"reason\": 一句中文理由（仅 7 分以上给，其他给空字符串）}}，只输出 JSON。"
+            f"\"reason\": 一句中文理由（仅 7 分以上给，其他给空字符串；可点出与用户哪方面兴趣相关）}}，只输出 JSON。"
         )
         try:
             resp = ai_client.chat(
@@ -509,34 +517,133 @@ def add_journal_item_to_library(item_id: int) -> int:
     if row["added_paper_id"]:
         return row["added_paper_id"]
 
-    # 查重（同 DOI 已在库）
-    dup = conn.execute("SELECT id FROM papers WHERE doi=?", (row["doi"],)).fetchone()
-    if dup:
+    # 写锁内"查重+插入"原子化：并发连点时在此排队，后来的请求能看到已入库结果
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        added = conn.execute(
+            "SELECT added_paper_id FROM journal_feed WHERE id=?", (item_id,)
+        ).fetchone()["added_paper_id"]
+        if added:
+            conn.rollback()
+            return added
+
+        # 查重（同 DOI 已在库，DOI 大小写不敏感）
+        dup = conn.execute(
+            "SELECT id FROM papers WHERE doi=? COLLATE NOCASE", (row["doi"],)
+        ).fetchone()
+        if dup:
+            conn.execute(
+                "UPDATE journal_feed SET added_paper_id=? WHERE id=?", (dup["id"], item_id)
+            )
+            conn.commit()
+            return dup["id"]
+
+        # 走现有 DOI 入库流程：建 paper 记录 → process_paper 会补 Unpaywall OA PDF 与 AI 标签
+        cur = conn.execute(
+            """INSERT INTO papers(title, authors, year, venue, doi, abstract, source)
+               VALUES(?,?,?,?,?,?,'journal_feed')""",
+            (
+                row["title"],
+                row["authors"],
+                int(row["published"][:4]) if row["published"] else None,
+                row["venue"],
+                row["doi"],
+                row["abstract"],
+            ),
+        )
+        paper_id = cur.lastrowid
         conn.execute(
-            "UPDATE journal_feed SET added_paper_id=? WHERE id=?", (dup["id"], item_id)
+            "UPDATE journal_feed SET added_paper_id=? WHERE id=?", (paper_id, item_id)
         )
         conn.commit()
-        return dup["id"]
+    except Exception:
+        conn.rollback()
+        raise
 
-    # 走现有 DOI 入库流程：建 paper 记录 → process_paper 会补 Unpaywall OA PDF 与 AI 标签
-    cur = conn.execute(
-        """INSERT INTO papers(title, authors, year, venue, doi, abstract, source)
-           VALUES(?,?,?,?,?,?,'journal_feed')""",
-        (
-            row["title"],
-            row["authors"],
-            int(row["published"][:4]) if row["published"] else None,
-            row["venue"],
-            row["doi"],
-            row["abstract"],
-        ),
-    )
-    conn.commit()
-    paper_id = cur.lastrowid
-    conn.execute(
-        "UPDATE journal_feed SET added_paper_id=? WHERE id=?", (paper_id, item_id)
-    )
-    conn.commit()
     from . import jobs as J
     J.enqueue("process_paper", {"paper_id": paper_id})
     return paper_id
+
+
+def _memory_block():
+    """打分提示词用的记忆段：记忆摘要一行铺垫。"""
+    mem = S.get_memory()
+    return f"用户的研究记忆摘要：\n{mem}\n" if mem else ""
+
+
+# ---------- 研究记忆摘要 ----------
+
+def refresh_memory():
+    """每周任务：聚合 文献 / 项目 / 近期对话，刷新研究记忆摘要（存 settings）。"""
+    from datetime import datetime
+    if not S.ai_configured():
+        print("[memory] AI 未配置，跳过")
+        return
+    conn = get_db()
+
+    # 文献：总数 + 高频标签 + 近 60 天新入库标题
+    n_papers = conn.execute("SELECT COUNT(*) c FROM papers").fetchone()["c"]
+    tag_counts = {}
+    for r in conn.execute("SELECT tags FROM papers"):
+        for t in (json.loads(r["tags"]) if r["tags"] else []):
+            tag_counts[t] = tag_counts.get(t, 0) + 1
+    top_tags = sorted(tag_counts.items(), key=lambda kv: -kv[1])[:12]
+    recent = conn.execute(
+        "SELECT title FROM papers WHERE created_at >= datetime('now', '-60 days') "
+        "ORDER BY created_at DESC LIMIT 15"
+    ).fetchall()
+
+    # 项目：名称 + 描述 + 条目数
+    projects = conn.execute(
+        """SELECT p.name, p.description,
+                  (SELECT COUNT(*) FROM papers WHERE projects LIKE '%' || p.name || '%') np,
+                  (SELECT COUNT(*) FROM project_items WHERE project_id = p.id) ni
+           FROM projects p"""
+    ).fetchall()
+
+    # 近期对话：最近 30 轮问答
+    chats = conn.execute(
+        "SELECT question, answer, created_at FROM chats ORDER BY created_at DESC LIMIT 30"
+    ).fetchall()
+
+    parts = [f"研究兴趣（用户自述）：{S.get('research_interests')}"]
+    parts.append(f"文献库规模：{n_papers} 篇；高频标签：{', '.join(f'{t}({n})' for t, n in top_tags) or '无'}")
+    if recent:
+        parts.append("近 60 天新入库：" + "；".join(r["title"][:40] for r in recent))
+    if projects:
+        plines = [f"「{p['name']}」（文献 {p['np']}，条目 {p['ni']}）：{p['description'] or '无描述'}" for p in projects]
+        parts.append("进行中的项目：\n" + "\n".join(plines))
+    if chats:
+        clines = [f"问：{c['question'][:80]}" for c in chats[:10]]
+        parts.append("近期问过 AI 的问题：\n" + "\n".join(clines))
+    prev = S.get_memory()
+    if prev:
+        parts.append("现有记忆摘要（在其基础上修订，保留仍然成立的内容）：\n" + prev[:2000])
+
+    prompt = (
+        "你是研究助理。请根据以下材料，更新用户的「研究记忆摘要」。"
+        "摘要用中文，Markdown，包含小节：研究主线 / 当前关注点 / 进行中的项目 / 近期动向。"
+        "只保留有信息量的内容，不要写空话，总长 300-500 字。\n\n" + "\n\n".join(parts)
+    )
+    try:
+        # 不设 max_tokens：思考模型的推理会消耗输出预算，导致 content 为空
+        summary = ai_client.chat([{"role": "user", "content": prompt}], temperature=0.3)
+    except (ai_client.AINotConfigured, ai_client.AICallError) as e:
+        print(f"[memory] {e}")
+        return
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    S.update({"memory_summary": summary.strip(), "memory_updated_at": now})
+    print(f"[memory] refreshed at {now}")
+
+
+def log_chat(scope: str, question: str, answer: str):
+    """把一轮 AI 问答落库（供记忆摘要参考）。失败不影响主流程。"""
+    try:
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO chats(scope, question, answer) VALUES(?,?,?)",
+            (scope, question[:2000], answer[:6000]),
+        )
+        conn.commit()
+    except Exception as e:
+        print(f"[log_chat] {e}")

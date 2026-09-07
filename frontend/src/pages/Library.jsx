@@ -198,7 +198,7 @@ export default function Library() {
   }
 
   return (
-    <div>
+    <div className="page-fixed">
       <div className="page-head">
         <h1>文献库 {papers && <span className="muted">（{papers.total} 篇）</span>}</h1>
         <div className="row">
@@ -289,7 +289,7 @@ export default function Library() {
                 onChange={e => setQ(e.target.value)} />
               <select value={mode} onChange={e => setMode(e.target.value)}>
                 <option value="keyword">关键词</option>
-                <option value="semantic">语义</option>
+                <option value="semantic">智能</option>
               </select>
             </form>
             <select value={sort} onChange={e => setSort(e.target.value)}>
@@ -316,7 +316,7 @@ export default function Library() {
           {jobsRunning > 0 && (
             <div className="muted mb8">
               ⏳ {jobsRunning} 个文献正在后台处理…
-              <Tip text="后台正在提取 PDF 全文、抓取元数据、生成 AI 标签与向量索引，完成后文献条目会自动更新。" />
+              <Tip text="后台正在提取 PDF 全文、抓取元数据、生成 AI 标签与摘要，完成后文献条目会自动更新。" />
             </div>
           )}
 
@@ -327,7 +327,7 @@ export default function Library() {
             border: checked.size > 0 ? '1px solid #bfdbfe' : '1px solid var(--border)',
             borderRadius: 'var(--radius)',
             padding: '8px 14px', flexWrap: 'wrap',
-            position: 'sticky', top: -10, zIndex: 9,
+            flexShrink: 0,
             boxShadow: '0 2px 8px rgba(30,40,60,0.06)',
           }}>
             <strong style={{ color: checked.size > 0 ? undefined : 'var(--text2)' }}>
@@ -349,36 +349,38 @@ export default function Library() {
             <button className="btn sm" onClick={() => setChecked(new Set())} disabled={checked.size === 0}>清空选择</button>
           </div>
 
-          {!papers ? (
-        <div>
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="skel-card">
-              <div className="skel-line head w60" />
-              <div className="skel-line w40" />
-              <div className="skel-line w90" />
-            </div>
-          ))}
-        </div>
-      ) : papers.items.length === 0 ? (
-            <EmptyState icon="book" title="文献库还是空的"
-          hint="上传 PDF、粘贴 arXiv 链接，或到「订阅」页看看新论文">
-          <button className="btn primary" onClick={() => fileInput.current.click()}><Icon name="plus" /> 添加第一篇 PDF</button>
-          <Link to="/feed"><button className="btn">看看订阅页</button></Link>
-        </EmptyState>
-          ) : (
-            <div className="paper-list">
-              {papers.items.map(p => (
-                <div key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <input type="checkbox" checked={checked.has(p.id)} onClick={e => e.stopPropagation()}
-                    onChange={() => toggleCheck(p.id)}
-                    style={{ marginTop: 16 }} title="勾选后可批量导出 BibTeX" />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <PaperItem p={p} nav={nav} onStar={toggleStar} />
+          <div className="scroll-list">
+            {!papers ? (
+              <div>
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="skel-card">
+                    <div className="skel-line head w60" />
+                    <div className="skel-line w40" />
+                    <div className="skel-line w90" />
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            ) : papers.items.length === 0 ? (
+              <EmptyState icon="book" title="文献库还是空的"
+                hint="上传 PDF、粘贴 arXiv 链接，或到「订阅」页看看新论文">
+                <button className="btn primary" onClick={() => fileInput.current.click()}><Icon name="plus" /> 添加第一篇 PDF</button>
+                <Link to="/feed"><button className="btn">看看订阅页</button></Link>
+              </EmptyState>
+            ) : (
+              <div className="paper-list">
+                {papers.items.map(p => (
+                  <div key={p.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <input type="checkbox" checked={checked.has(p.id)} onClick={e => e.stopPropagation()}
+                      onChange={() => toggleCheck(p.id)}
+                      style={{ marginTop: 16 }} title="勾选后可批量导出 BibTeX" />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <PaperItem p={p} nav={nav} onStar={toggleStar} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

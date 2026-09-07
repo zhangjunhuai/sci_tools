@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from .. import ai_client
 from .. import settings as S
+from .. import tasks
 from ..db import get_db
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -62,6 +63,8 @@ def ask(body: AskBody):
         for i, c in enumerate(contexts)
     )
     titles = sorted({c["title"] for c in contexts})
+    mem = S.get_memory()
+    mem_line = f"\n用户的研究记忆摘要（回答时可结合其研究背景个性化）：\n{mem}" if mem else ""
     messages = [
         {
             "role": "system",
@@ -70,11 +73,13 @@ def ask(body: AskBody):
                 "用中文回答；引用信息时标注来源编号（如【来源1】）。"
                 "如果片段信息不足以回答，就直说不足。"
                 f"本次涉及的文献：{ '、'.join(titles[:10]) }"
+                f"{mem_line}"
             ),
         },
         {"role": "user", "content": f"文献片段：\n{ctx_text}\n\n问题：{question}"},
     ]
     answer = ai_client.chat(messages, temperature=0.3)
+    tasks.log_chat(f"paper:{body.paper_ids[0]}" if body.paper_ids else "global", question, answer)
     return {
         "answer": answer,
         "sources": [
@@ -185,9 +190,49 @@ def _excerpt(p, head: int = 5000, tail: int = 2500) -> str:
     return "\n".join(parts) if parts else "（无可用文本）"
 
 
+def _query_terms(question: str) -> list:
+    """检索词：聊天模型提炼 3-6 个术语（失败退化为按标点切词）。"""
+    if S.ai_configured():
+        try:
+            resp = ai_client.chat(
+                [{"role": "user", "content":
+                    "从下面的问题中提取 3-6 个最适合在文献库做全文检索的术语或短语"
+                    "（保留中英文原样，去掉虚词），"
+                    '输出 JSON：{"keywords": ["..."] }。\n问题：' + question}],
+                temperature=0.1, json_mode=True, max_tokens=200,
+            )
+            data = ai_client.parse_json(resp)
+            kws = [str(k).strip() for k in data.get("keywords", []) if str(k).strip()]
+            if kws:
+                return kws[:6]
+        except (ai_client.AINotConfigured, ai_client.AICallError, ValueError):
+            pass
+    return [w for w in re.split(r"[\s,，。?？!！:：]+", question) if len(w) >= 2][:6]
+
+
+def _select_papers(conn, terms: list, limit: int = 3):
+    """按检索词在 标题/摘要/全文/标签 的命中数给论文排序（FTS 索引）。"""
+    from .papers import _fts_query
+    counts = {}
+    for t in terms:
+        for pid in _fts_query(conn, t) or []:
+            counts[pid] = counts.get(pid, 0) + 1
+    out = []
+    for pid in sorted(counts, key=lambda i: -counts[i])[:limit]:
+        r = conn.execute(
+            "SELECT id, title, pdf_text, abstract FROM papers WHERE id=?", (pid,)
+        ).fetchone()
+        if r:
+            out.append(r)
+    return out
+
+
 def _gather_context(conn, question: str, paper_ids: list, top_k: int = 6):
-    """选定文献（或全库语义检索）→ 段落级打分取最相关片段。"""
-    import numpy as np
+    """选定文献（或全库检索）→ 段落词面打分取最相关片段。
+
+    服务商不支持 /v1/embeddings：检索词由聊天模型提炼，选论文走 FTS，段落用词面重合打分。
+    """
+    terms = _query_terms(question)
 
     if paper_ids:
         papers = []
@@ -197,56 +242,37 @@ def _gather_context(conn, question: str, paper_ids: list, top_k: int = 6):
             ).fetchone()
             if r:
                 papers.append(r)
-        # 语义可用时先粗筛段落，否则词面打分
         scored = []
-        use_vec = S.ai_configured()
-        qvec = None
-        if use_vec:
-            try:
-                qvec = ai_client.embed([question])[0]
-            except ai_client.AICallError:
-                use_vec = False
         for p in papers:
             paras = _paragraphs(p["pdf_text"] or p["abstract"] or "")
             for i, para in enumerate(paras):
                 if len(para) < 40:
                     continue
-                if use_vec:
-                    para_vec = ai_client.embed([para])[0]
-                    score = float(np.dot(para_vec / (np.linalg.norm(para_vec) + 1e-9),
-                                         qvec / (np.linalg.norm(qvec) + 1e-9)))
-                else:
-                    score = _term_overlap(question, para)
-                scored.append({"paper_id": p["id"], "title": p["title"], "para_idx": i + 1, "text": para, "score": score})
+                scored.append({"paper_id": p["id"], "title": p["title"], "para_idx": i + 1,
+                               "text": para, "score": _term_overlap(terms, para)})
         scored.sort(key=lambda x: -x["score"])
         return scored[:top_k]
 
-    # 全库：先语义选论文，再在论文内选段落
+    # 全库：检索词命中数选论文 → 每篇取词面分最高的 2 段
     if not S.ai_configured():
-        raise HTTPException(400, "全库问答需要配置 API Key（用于语义检索）")
-    qvec = ai_client.embed([question])[0]
-    rows = conn.execute("SELECT id, title, embedding, pdf_text, abstract FROM papers WHERE embedding IS NOT NULL").fetchall()
-    if not rows:
-        raise HTTPException(400, "库中还没有可检索的文献")
-    import numpy as np
-    mat = np.stack([np.frombuffer(r["embedding"], dtype=np.float32) for r in rows])
-    mat = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-9)
-    qv = qvec / (np.linalg.norm(qvec) + 1e-9)
-    sims = mat @ qv
-    top_papers = [rows[i] for i in np.argsort(-sims)[:3]]
+        raise HTTPException(400, "全库问答需要先在设置中配置 API Key")
+    top_papers = _select_papers(conn, terms)
+    if not top_papers:
+        raise HTTPException(400, "库里没有与问题相关的文献")
     scored = []
     for p in top_papers:
         paras = _paragraphs(p["pdf_text"] or p["abstract"] or "")
-        if not paras:
-            continue
-        para_vecs = ai_client.embed(paras[:120])
-        para_vecs = para_vecs / (np.linalg.norm(para_vecs, axis=1, keepdims=True) + 1e-9)
-        psims = para_vecs @ qv
-        best = np.argsort(-psims)[:2]
-        for i in best:
-            if len(paras[i]) >= 40:
-                scored.append({"paper_id": p["id"], "title": p["title"], "para_idx": i + 1,
-                               "text": paras[i], "score": float(psims[i])})
+        cands = [{"paper_id": p["id"], "title": p["title"], "para_idx": i + 1,
+                  "text": para, "score": _term_overlap(terms, para)}
+                 for i, para in enumerate(paras) if len(para) >= 40]
+        cands.sort(key=lambda x: -x["score"])
+        scored.extend(cands[:2])
+    if not scored:
+        # 全文里没有可分段文本：退回摘要开头，保证回答有据可依
+        for p in top_papers:
+            if p["abstract"]:
+                scored.append({"paper_id": p["id"], "title": p["title"], "para_idx": 1,
+                               "text": p["abstract"][:1200], "score": 0.0})
     scored.sort(key=lambda x: -x["score"])
     return scored[:top_k]
 
@@ -259,8 +285,9 @@ def _paragraphs(text: str):
     return paras[:200]
 
 
-def _term_overlap(question: str, para: str) -> float:
-    terms = [t for t in re.split(r"[\s,，。?？!！:：]+", question) if len(t) >= 2]
+def _term_overlap(terms: list, para: str) -> float:
+    """检索词在段落中的命中比例。"""
     if not terms:
         return 0.0
-    return sum(1 for t in terms if t.lower() in para.lower()) / len(terms)
+    pl = para.lower()
+    return sum(1 for t in terms if t.lower() in pl) / len(terms)

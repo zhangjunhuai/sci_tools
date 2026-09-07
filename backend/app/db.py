@@ -39,7 +39,6 @@ def init_db():
             ai_summary TEXT,
             pdf_path TEXT,                            -- relative to PDF_DIR
             pdf_text TEXT,                            -- extracted plain text
-            embedding BLOB,                           -- float32 numpy array
             source TEXT DEFAULT 'manual',             -- manual | zotero | arxiv_feed
             created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
@@ -114,6 +113,15 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_journal_feed_sub ON journal_feed(sub_id);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_journal_feed_doi ON journal_feed(doi);
+
+        CREATE TABLE IF NOT EXISTS chats (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL DEFAULT 'global',     -- global | paper:<id> | project:<id>
+            question TEXT NOT NULL,
+            answer TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_chats_created ON chats(created_at DESC);
 
         CREATE TABLE IF NOT EXISTS feed_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

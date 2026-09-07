@@ -32,9 +32,32 @@ def _set_status(job_id: int, status: str, message: str = ""):
 
 async def _worker():
     from .tasks import run_job  # 延迟导入避免循环
+    from datetime import datetime as _dt
+
+    last_mem_check = 0.0
 
     while True:
-        job_id = await _queue.get()
+        # 每小时检查一次：记忆摘要超过 7 天（或为空）且配置了 AI，自动刷新
+        import time as _time
+        if _time.time() - last_mem_check > 3600:
+            last_mem_check = _time.time()
+            try:
+                conn = get_db()
+                if conn.execute("SELECT 1 FROM settings WHERE key='api_key' AND value!=''").fetchone():
+                    upd = conn.execute("SELECT value FROM settings WHERE key='memory_updated_at'").fetchone()
+                    stale = True
+                    if upd and upd["value"]:
+                        d = _dt.strptime(upd["value"], "%Y-%m-%d %H:%M")
+                        stale = (_dt.now() - d).days >= 7
+                    if stale:
+                        enqueue("refresh_memory", {})
+            except Exception:
+                pass
+        try:
+            # 带超时取任务：队列空闲时也要定期醒一次，保证上面的记忆检查按时执行
+            job_id = await asyncio.wait_for(_queue.get(), timeout=3600)
+        except asyncio.TimeoutError:
+            continue
         try:
             conn = get_db()
             row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()

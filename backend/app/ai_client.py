@@ -1,8 +1,7 @@
-"""OpenAI 兼容接口客户端（chat + embeddings）。"""
+"""OpenAI 兼容接口客户端（chat）。"""
 import base64
 import re
 import httpx
-import numpy as np
 from . import settings as S
 
 
@@ -56,17 +55,6 @@ def chat(messages: list, temperature: float = 0.3, json_mode: bool = False,
     if r.status_code != 200:
         raise AICallError(f"Chat API {r.status_code}: {r.text[:300]}")
     return r.json()["choices"][0]["message"]["content"]
-
-
-def embed(texts: list) -> np.ndarray:
-    """返回 (n, dim) float32 数组。"""
-    base = S.get("api_base_url").rstrip("/")
-    body = {"model": S.get("embed_model"), "input": texts}
-    r = httpx.post(f"{base}/embeddings", headers=_headers(), json=body, timeout=120)
-    if r.status_code != 200:
-        raise AICallError(f"Embedding API {r.status_code}: {r.text[:300]}")
-    data = sorted(r.json()["data"], key=lambda d: d["index"])
-    return np.array([d["embedding"] for d in data], dtype=np.float32)
 
 
 def parse_json(text: str):

@@ -22,6 +22,7 @@ from ..config import LATEX_DIR
 from ..db import get_db
 from .. import settings as S
 from .. import db as DB
+from .. import tasks
 from ..routers.papers import _paper_out
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -661,8 +662,11 @@ def project_ai_ask(project_id: int, body: ProjectAskBody):
         raise HTTPException(400, "没有可注入的上下文：项目里没有匹配权限范围的文献/笔记/实验记录")
 
     research = S.get("research_interests")
+    mem = S.get_memory()
+    mem_line = f"用户的研究记忆摘要（供个性化参考）：\n{mem}\n" if mem else ""
     system = (
         f"你是项目「{name}」的科研 AI 助手。用户的研究方向：{research}。\n"
+        f"{mem_line}"
         "根据提供的项目资料（文献摘要/AI 摘要、项目笔记、实验记录）用中文回答问题；"
         "引用资料时注明来源名（如《标题》或笔记/实验记录名）；资料不足以回答时直说不足，不要编造。"
         + ("（注意：部分资料因超出上下文预算被截断或未注入。）" if truncated else "")
@@ -677,6 +681,7 @@ def project_ai_ask(project_id: int, body: ProjectAskBody):
     except ai_client.AICallError as e:
         raise HTTPException(502, f"AI 调用失败：{e}")
 
+    tasks.log_chat(f"project:{project_id}", question, answer)
     total = sum(used.values()) + len((system + user + answer)) // CHARS_PER_TOKEN
     return {
         "answer": answer,

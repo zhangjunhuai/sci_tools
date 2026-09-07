@@ -14,20 +14,80 @@ from .. import journalinfo
 router = APIRouter(prefix="/api", tags=["misc"])
 
 
-# ---------- arXiv 订阅流 ----------
+# ---------- 订阅流（arXiv + 期刊统一） ----------
 
 @router.get("/feed")
-def get_feed(limit: int = 100, hide_dismissed: bool = True):
+def get_feed(
+    limit: int = 300,
+    hide_dismissed: bool = True,
+    hide_added: bool = True,
+    min_score: bool = False,
+    source: str = "",   # 逗号分隔：'arxiv' 或期刊名；空 = 全部
+):
+    """统一订阅流：arXiv 推荐与期刊订阅 UNION 聚合，字段对齐，支持来源/高分/已忽略/已入库筛选。"""
     conn = get_db()
-    sql = "SELECT * FROM feed_items"
+    conds, params = [], []
     if hide_dismissed:
-        sql += " WHERE dismissed=0"
-    sql += " ORDER BY (relevance IS NULL), relevance DESC, created_at DESC LIMIT ?"
-    rows = conn.execute(sql, (limit,)).fetchall()
-    items = [DB.row_to_dict(r) for r in rows]
-    for it in items:
-        it["authors"] = it.get("authors") or []
-    return {"items": items}
+        conds.append("dismissed=0")
+    if hide_added:
+        conds.append("added_paper_id IS NULL")
+    if min_score:
+        conds.append("(relevance IS NULL OR relevance >= 7)")
+    if source:
+        wants = [s.strip() for s in source.split(",") if s.strip()]
+        src_conds = []
+        if "arxiv" in wants:
+            src_conds.append("source='arxiv'")
+            wants = [w for w in wants if w != "arxiv"]
+        if wants:
+            src_conds.append(
+                "source IN (SELECT 'journal' FROM journal_subs WHERE name IN "
+                f"({','.join('?' * len(wants))}))"
+            )
+            params.extend(wants)
+        if src_conds:
+            conds.append("(" + " OR ".join(src_conds) + ")")
+    where = (" WHERE " + " AND ".join(conds)) if conds else ""
+
+    sql = f"""
+        SELECT * FROM (
+            SELECT id, 'arxiv' AS source, '' AS sub_name, title, authors, abstract,
+                   primary_category AS venue, arxiv_id AS external_id,
+                   'https://arxiv.org/abs/' || arxiv_id AS ext_url,
+                   published, relevance, relevance_reason, dismissed, added_paper_id
+            FROM feed_items
+            UNION ALL
+            SELECT f.id, 'journal', s.name, f.title, f.authors, f.abstract,
+                   f.venue, f.doi, 'https://doi.org/' || f.doi,
+                   f.published, f.relevance, f.relevance_reason, f.dismissed, f.added_paper_id
+            FROM journal_feed f JOIN journal_subs s ON s.id = f.sub_id
+        ){where}
+        ORDER BY (relevance IS NULL) ASC, relevance DESC, published DESC, source, id DESC
+        LIMIT {int(limit)}
+    """
+    rows = conn.execute(sql, params).fetchall()
+    items = []
+    for r in rows:
+        d = DB.row_to_dict(r)
+        d["authors"] = d.get("authors") or []
+        items.append(d)
+
+    # facets：各来源的未处理条目数（排除已忽略与已入库；来源行 = arXiv + 每个订阅期刊）
+    added_cond = " AND f.added_paper_id IS NULL" if hide_added else ""
+    jfacets = conn.execute(
+        f"""SELECT s.name, COUNT(f.id) c FROM journal_subs s
+           LEFT JOIN journal_feed f ON f.sub_id = s.id AND f.dismissed=0{added_cond}
+           GROUP BY s.id ORDER BY s.name"""
+    ).fetchall()
+    added_cond_a = " AND added_paper_id IS NULL" if hide_added else ""
+    n_arxiv = conn.execute(
+        f"SELECT COUNT(*) c FROM feed_items WHERE dismissed=0{added_cond_a}"
+    ).fetchone()["c"]
+    facets = {
+        "sources": [["arxiv", n_arxiv]] + [[r["name"], r["c"]] for r in jfacets],
+        "total": n_arxiv + sum(r["c"] for r in jfacets),
+    }
+    return {"items": items, "facets": facets}
 
 
 @router.post("/feed/fetch")
@@ -40,6 +100,16 @@ def fetch_now():
 def dismiss_feed(feed_id: int):
     conn = get_db()
     conn.execute("UPDATE feed_items SET dismissed=1 WHERE id=?", (feed_id,))
+    conn.commit()
+    return {"ok": True}
+
+
+@router.post("/feed/{source}/{item_id}/dismiss")
+def dismiss_unified(source: str, item_id: int):
+    """统一列表的忽略：按来源分流到各自表。"""
+    conn = get_db()
+    table = "feed_items" if source == "arxiv" else "journal_feed"
+    conn.execute(f"UPDATE {table} SET dismissed=1 WHERE id=?", (item_id,))
     conn.commit()
     return {"ok": True}
 
@@ -98,25 +168,29 @@ def facets():
 # ---------- 知识图谱（双链 + 语义相似度） ----------
 
 @router.get("/graph")
-def graph(sim_threshold: float = 0.72):
-    """节点 = 库内文献；边 = 笔记 [[双链]]（kind=link）+ 语义相似（kind=sim）。"""
+def graph(sim_threshold: float = 0.3):
+    """节点 = 库内文献；边 = 笔记 [[双链]]（kind=link）+ 标签重合（kind=sim）。"""
     import re
-    import numpy as np
+    import json as _json
     conn = get_db()
-    rows = conn.execute("SELECT id, title, status, starred, notes, embedding FROM papers").fetchall()
+    rows = conn.execute("SELECT id, title, status, starred, notes, tags FROM papers").fetchall()
 
     def title_key(s):
         return journalinfo.norm_name(re.sub(r"\.pdf$", "", s or "", flags=re.I))
 
-    nodes, tmap, embeds = [], {}, {}
+    def parse_tags(raw):
+        try:
+            return set(_json.loads(raw)) if raw else set()
+        except (ValueError, TypeError):
+            return set()
+
+    nodes, tmap, tagsets = [], {}, {}
     for r in rows:
         nodes.append({"id": r["id"], "title": r["title"], "status": r["status"], "starred": bool(r["starred"])})
         tmap[title_key(r["title"])] = r["id"]
-        if r["embedding"]:
-            try:
-                embeds[r["id"]] = np.frombuffer(r["embedding"], dtype=np.float32)
-            except ValueError:
-                pass
+        ts = parse_tags(r["tags"])
+        if ts:
+            tagsets[r["id"]] = ts
 
     edges, seen = [], set()
 
@@ -134,17 +208,19 @@ def graph(sim_threshold: float = 0.72):
             if target:
                 add_edge(r["id"], target, "link")
 
-    # 语义相似：每节点取最相似的 2 篇（双向去重后保留）
-    if len(embeds) >= 2:
-        ids = list(embeds.keys())
-        mat = np.stack([embeds[i] for i in ids])
-        if len({m.shape for m in mat}) == 1:  # 向量维度一致才可比
-            mat = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-9)
-            sims = mat @ mat.T
-            for i, pi in enumerate(ids):
-                for j in np.argsort(-sims[i])[1:3]:
-                    if sims[i][j] >= sim_threshold:
-                        add_edge(pi, ids[j], "sim")
+    # 标签相似：Jaccard 重合度每节点取最高的 2 篇（有 AI 标签的文献才有 sim 边）
+    if len(tagsets) >= 2:
+        ids = list(tagsets.keys())
+        for i, pi in enumerate(ids):
+            sims = []
+            for pj in ids[i + 1:]:
+                inter = len(tagsets[pi] & tagsets[pj])
+                if inter:
+                    sims.append((pj, inter / len(tagsets[pi] | tagsets[pj])))
+            sims.sort(key=lambda x: -x[1])
+            for pj, s in sims[:2]:
+                if s >= sim_threshold:
+                    add_edge(pi, pj, "sim")
 
     return {"nodes": nodes, "edges": edges}
 
@@ -173,7 +249,6 @@ class SettingsBody(BaseModel):
     api_base_url: str | None = None
     api_key: str | None = None
     chat_model: str | None = None
-    embed_model: str | None = None
     reasoning_effort: str | None = None
     research_interests: str | None = None
     tag_preset: str | None = None
@@ -181,6 +256,7 @@ class SettingsBody(BaseModel):
     arxiv_keywords: str | None = None
     arxiv_max_results: str | None = None
     context_window: str | None = None
+    memory_summary: str | None = None
 
 
 @router.get("/settings")
@@ -190,6 +266,13 @@ def get_settings():
     d["api_key"] = "••••••••" if d["api_key"] else ""
     d["api_key_set"] = bool(S.get("api_key"))
     return d
+
+
+@router.post("/memory/refresh")
+def refresh_memory_now():
+    """立即刷新研究记忆摘要（后台任务）。"""
+    J.enqueue("refresh_memory", {})
+    return {"ok": True, "message": "记忆刷新任务已加入队列"}
 
 
 @router.patch("/settings")

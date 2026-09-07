@@ -48,7 +48,7 @@ export default function AiPanel({ paper }) {
       <div className="row spread mb8">
         <strong>
           AI 助手
-          <Tip text="对本文提问；在文献库搜索框选「语义」模式可做全库检索。首次使用需在「设置」配置 API Key。" />
+          <Tip text="对本文提问；在文献库搜索框选「智能」模式可做全库检索。首次使用需在「设置」配置 API Key。" />
         </strong>
         <button className="btn sm" onClick={summarize} disabled={summaryBusy}>
           {summaryBusy ? '生成中…' : '⚡ 生成结构化摘要'}

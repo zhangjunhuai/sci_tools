@@ -65,10 +65,10 @@ def list_papers(
     conn = get_db()
     ids = None
     if q and mode == "semantic":
+        # 服务商不支持 embeddings：语义检索 = 聊天模型提炼检索词 + FTS 命中数排序
         if not S.ai_configured():
             raise HTTPException(400, "语义搜索需要先在设置中配置 API Key")
-        qvec = ai_client.embed([q])[0]
-        ids, scores = _semantic_ids(conn, qvec, limit=200)
+        ids = _semantic_ids(conn, q, limit=200)
         if not ids:
             return {"total": 0, "items": []}
 
@@ -160,22 +160,26 @@ def _fts_query(conn, q: str):
         return [r["id"] for r in rows]
 
 
-def _semantic_ids(conn, qvec, limit=200):
-    rows = conn.execute("SELECT id, embedding FROM papers WHERE embedding IS NOT NULL").fetchall()
-    if not rows:
-        return [], []
-    import numpy as np
-    ids, mat = [], []
-    for r in rows:
-        vec = np.frombuffer(r["embedding"], dtype=np.float32)
-        ids.append(r["id"])
-        mat.append(vec)
-    mat = np.stack(mat)
-    mat = mat / (np.linalg.norm(mat, axis=1, keepdims=True) + 1e-9)
-    qv = qvec / (np.linalg.norm(qvec) + 1e-9)
-    sims = mat @ qv
-    top = np.argsort(-sims)[:limit]
-    return [ids[i] for i in top], sims[top]
+def _semantic_ids(conn, q: str, limit: int = 200):
+    """智能检索：聊天模型把查询扩写成检索词，FTS 多词 OR，按命中词数排序（无 embeddings）。"""
+    terms = [q.strip()]
+    if S.ai_configured():
+        try:
+            resp = ai_client.chat(
+                [{"role": "user", "content":
+                    f"把下面的文献检索需求扩写成 3-6 个检索词（同义词、英文术语、中文译名），"
+                    f'输出 JSON：{{"keywords": ["..."] }}。需求：{q}'}],
+                temperature=0.2, json_mode=True, max_tokens=200,
+            )
+            data = ai_client.parse_json(resp)
+            terms = [str(k).strip() for k in data.get("keywords", []) if str(k).strip()] or terms
+        except (ai_client.AINotConfigured, ai_client.AICallError, ValueError):
+            pass
+    counts = {}
+    for t in terms[:6]:
+        for pid in _fts_query(conn, t) or []:
+            counts[pid] = counts.get(pid, 0) + 1
+    return [pid for pid, _ in sorted(counts.items(), key=lambda kv: -kv[1])[:limit]]
 
 
 @router.get("/search")
@@ -376,19 +380,32 @@ async def attach_pdf(paper_id: int, file: UploadFile = File(...)):
 
 @router.post("/{paper_id}/similar")
 def similar(paper_id: int, limit: int = 10):
-    """找相似：基于 embedding 余弦相似度。"""
+    """找相似：标签重合数优先，其次 FTS 命中数（无 embeddings）。"""
     conn = get_db()
-    row = conn.execute("SELECT embedding FROM papers WHERE id=?", (paper_id,)).fetchone()
+    row = conn.execute("SELECT title, abstract, tags FROM papers WHERE id=?", (paper_id,)).fetchone()
     if row is None:
         raise HTTPException(404)
-    if not row["embedding"]:
-        raise HTTPException(400, "该文献还没有向量（需要配置 API 并完成处理）")
-    import numpy as np
-    ids, scores = _semantic_ids(conn, np.frombuffer(row["embedding"], dtype="float32"), limit=limit + 1)
-    ids = [i for i in ids if i != paper_id][:limit]
+    try:
+        tags = set(json.loads(row["tags"]) if row["tags"] else [])
+    except json.JSONDecodeError:
+        tags = set()
+    scores = {}
+    # 标签重合：每重合 1 个标签计 3 分（最直接的"同领域"信号）
+    for t in tags:
+        for r in conn.execute("SELECT id FROM papers WHERE tags LIKE ?", (f'%"{t}"%',)).fetchall():
+            if r["id"] != paper_id:
+                scores[r["id"]] = scores.get(r["id"], 0) + 3
+    # 标题+摘要 FTS 命中：每命中一个词计 1 分
+    terms = [w for w in re.split(r"[\s,，。?？!！:：]+", f"{row['title']} {row['abstract'] or ''}") if len(w) >= 3][:6]
+    for t in terms:
+        for pid in _fts_query(conn, t) or []:
+            if pid != paper_id:
+                scores[pid] = scores.get(pid, 0) + 1
+    ids = [pid for pid, _ in sorted(scores.items(), key=lambda kv: -kv[1])[:limit]]
     if not ids:
         return {"items": []}
     rows = conn.execute(
         f"SELECT * FROM papers WHERE id IN ({','.join('?' * len(ids))})", ids
     ).fetchall()
+    rows.sort(key=lambda r: ids.index(r["id"]))
     return {"items": [_paper_out(r) for r in rows]}

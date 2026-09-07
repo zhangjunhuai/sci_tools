@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import Tip from '../components/Tip'
+import Icon from '../components/Icon'
 
 const FIELDS = [
   ['api_base_url', 'API 地址（OpenAI 兼容）', 'https://api.openai.com/v1'],
   ['api_key', 'API Key', ''],
   ['chat_model', '对话模型', 'gpt-4o-mini'],
-  ['embed_model', 'Embedding 模型', 'text-embedding-3-small'],
 ]
 
 // 书签脚本：在期刊页/PDF 页点击，用浏览器自身登录态抓 PDF 传给本地文献库
@@ -41,6 +41,7 @@ return fetch(BASE+'/api/papers/upload',{method:'POST',body:fd}).then(function(r)
 
 export default function Settings() {
   const [form, setForm] = useState(null)
+  const [memRefreshing, setMemRefreshing] = useState(false)
   const [saved, setSaved] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState(null)
@@ -172,6 +173,41 @@ export default function Settings() {
           用法：① 打开有权限下载的期刊文章页 → ② 点书签「存入文献中心」→ ③ 弹窗提示已入库，PDF 与元数据一并保存。
           如果点完提示"未找到 PDF"，说明该站没暴露标准 PDF 链接——先手动点进 PDF 页再点一次书签即可。
         </p>
+      </div>
+
+      <div className="card mb16">
+        <div className="row spread mb8">
+          <strong className="row" style={{ gap: 5 }}>
+            研究记忆摘要
+            <Tip text="AI 每周自动根据你的文献库、项目和 AI 问答历史更新这份摘要；打分与 AI 问答会参考它提供个性化回答。可以直接手动编辑，修改后下次自动刷新会以其为基础修订。" />
+          </strong>
+          <div className="row">
+            {form?.memory_updated_at && <span className="muted" style={{ fontSize: 12.5 }}>更新于 {form.memory_updated_at}</span>}
+            <button className="btn sm" disabled={memRefreshing}
+              onClick={async () => {
+                setMemRefreshing(true)
+                try {
+                  await api.post('/memory/refresh')
+                  setTimeout(async () => {
+                    setForm(await api.get('/settings'))
+                    setMemRefreshing(false)
+                  }, 20000)
+                } catch { setMemRefreshing(false) }
+              }}>
+              <Icon name="refresh" size={13} /> {memRefreshing ? '刷新中…' : '立即刷新'}
+            </button>
+          </div>
+        </div>
+        {form?.memory_summary ? (
+          <textarea rows={9} style={{ width: '100%', fontSize: 13.5, lineHeight: 1.7 }}
+            value={form.memory_summary}
+            onChange={e => { set('memory_summary', e.target.value) }} />
+        ) : (
+          <p className="muted" style={{ margin: 0 }}>
+            尚未生成。配置 API Key 后，AI 会在每次启动检查（超过 7 天未更新时自动刷新），
+            或点右上角「立即刷新」现在生成。刷新依据：文献库（标签/新入库）、项目、最近 AI 问答。
+          </p>
+        )}
       </div>
 
       <div className="card">

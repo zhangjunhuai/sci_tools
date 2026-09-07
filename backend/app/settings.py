@@ -7,7 +7,6 @@ DEFAULTS = {
     "api_base_url": "https://api.openai.com/v1",
     "api_key": "",
     "chat_model": "gpt-4o-mini",
-    "embed_model": "text-embedding-3-small",
     # 思考类模型的推理深度：low 是多数思考模型的最快档；非思考模型会自动忽略该参数
     "reasoning_effort": "low",
     # 研究方向描述，AI 打标签/打分都以此为准
@@ -22,7 +21,15 @@ DEFAULTS = {
     "arxiv_max_results": "80",
     # 聊天模型的上下文窗口（tokens）：项目 AI 助手按它控制注入内容的预算
     "context_window": "32768",
+    # 研究记忆摘要：每周由 refresh_memory 任务根据文献/项目/对话自动更新；AI 打分与问答会参考
+    "memory_summary": "",
+    "memory_updated_at": "",
 }
+
+
+def get_memory() -> str:
+    """研究记忆摘要（可能被用户手改过，直接返回存量文本）。"""
+    return get("memory_summary")
 
 
 def get_all() -> dict:
