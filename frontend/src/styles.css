@@ -625,3 +625,38 @@ a { color: var(--accent); }
 /* Feed 标题可点击查看 AI 速览 */
 .feed-title { cursor: pointer; transition: color 0.15s; }
 .feed-title:hover { color: var(--accent); }
+
+/* Markdown 笔记渲染（marked + KaTeX + [[双链]]） */
+.md-view { line-height: 1.75; word-break: break-word; }
+.md-view h1, .md-view h2, .md-view h3, .md-view h4 { margin: 0.9em 0 0.4em; line-height: 1.4; }
+.md-view h1 { font-size: 1.35em; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.md-view h2 { font-size: 1.2em; }
+.md-view h3 { font-size: 1.08em; }
+.md-view p { margin: 0.5em 0; }
+.md-view ul, .md-view ol { margin: 0.5em 0; padding-left: 1.6em; }
+.md-view blockquote {
+  margin: 0.6em 0; padding: 4px 12px; color: var(--text2);
+  border-left: 3px solid var(--accent-weak); background: color-mix(in srgb, var(--accent-weak) 30%, transparent);
+}
+.md-view code {
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 0.9em;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px;
+}
+.md-view pre {
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 10px 12px; overflow-x: auto; line-height: 1.5;
+}
+.md-view pre code { background: none; border: none; padding: 0; }
+.md-view table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.95em; }
+.md-view th, .md-view td { border: 1px solid var(--border); padding: 5px 10px; text-align: left; }
+.md-view th { background: var(--bg); }
+.md-view img { max-width: 100%; }
+.md-view hr { border: none; border-top: 1px solid var(--border); margin: 1em 0; }
+.md-view .katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0; }
+.md-view .note-link {
+  color: var(--accent); text-decoration: underline; cursor: pointer;
+}
+.md-view .note-link:hover { opacity: 0.8; }
+
+/* 项目条目：预览态容器（与 textarea 同框，可滚动） */
+.md-preview { overflow-y: auto; }

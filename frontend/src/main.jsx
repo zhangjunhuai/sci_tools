@@ -9,6 +9,7 @@ import Settings from './pages/Settings'
 import Graph from './pages/Graph'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
+import 'katex/dist/katex.min.css'
 import './styles.css'
 
 // 首屏前应用主题，避免深色模式闪白

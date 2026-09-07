@@ -5,6 +5,7 @@ import PdfViewer from '../components/PdfViewer'
 import AiPanel from '../components/AiPanel'
 import Tip from '../components/Tip'
 import JournalBadge from '../components/JournalBadge'
+import MarkdownView from '../components/MarkdownView'
 import Icon from '../components/Icon'
 
 const STATUS_LABEL = { unread: '未读', reading: '在读', read: '已读' }
@@ -304,9 +305,7 @@ function NotesCard({ paper, onSaved }) {
           </div>
         </>
       ) : (
-        <div style={{ fontSize: 14, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-          {paper.notes ? <Markdownish text={paper.notes} /> : <span className="muted">暂无笔记</span>}
-        </div>
+        paper.notes ? <MarkdownView text={paper.notes} /> : <span className="muted">暂无笔记</span>
       )}
     </div>
   )
@@ -500,32 +499,3 @@ function RelatedCard({ paper, nav }) {
   )
 }
 
-// 轻量渲染：[[标题]] 链接 + 换行
-function Markdownish({ text }) {
-  const parts = []
-  const re = /\[\[(.+?)\]\]/g
-  let last = 0, m
-  while ((m = re.exec(text))) {
-    if (m.index > last) parts.push(text.slice(last, m.index))
-    parts.push(<NoteLink key={m[1]} title={m[1]} />)
-    last = re.lastIndex
-  }
-  parts.push(text.slice(last))
-  return <>{parts}</>
-}
-
-function NoteLink({ title }) {
-  const nav = useNavigate()
-  const [hit, setHit] = useState(null)
-  useEffect(() => {
-    api.get(`/papers?q=${encodeURIComponent(title)}&limit=5`).then(d => {
-      setHit(d.items.find(p => p.title === title) || (d.items.length === 1 ? d.items[0] : null))
-    }).catch(() => {})
-  }, [title])
-  return (
-    <span className="clickable" style={{ color: 'var(--accent)', textDecoration: 'underline' }}
-      onClick={() => hit ? nav(`/papers/${hit.id}`) : alert('库里没有完全匹配的论文')}>
-      {title}
-    </span>
-  )
-}

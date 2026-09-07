@@ -4,6 +4,7 @@ import { api, displayTitle } from '../api'
 import Tip from '../components/Tip'
 import JournalBadge from '../components/JournalBadge'
 import ProjectAiPanel from '../components/ProjectAiPanel'
+import MarkdownView from '../components/MarkdownView'
 import Icon from '../components/Icon'
 
 const TYPE_LABEL = { note: '📝 笔记', result: '🧪 实验记录', latex: '📄 LaTeX 文档' }
@@ -463,6 +464,7 @@ function PaperView({ paper, nav, onRemove }) {
 /* ---------- 右侧：条目内联编辑器 ---------- */
 function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile, latexState, projectId }) {
   const isLatex = item.item_type === 'latex'
+  const [preview, setPreview] = useState(false)
   const st = latexState
   const typeLabel = { note: '📝 笔记', result: '🧪 实验记录', latex: '📄 LaTeX 文档' }[item.item_type]
 
@@ -493,6 +495,11 @@ function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile
           <button className="btn sm" disabled={saving || !draft} onClick={onSave}>
             <Icon name="save" size={13} /> {saving ? '保存中…' : '保存'}
           </button>
+          {!isLatex && (
+            <button className="btn sm" onClick={() => setPreview(v => !v)}>
+              <Icon name="eye" size={13} /> {preview ? '继续编辑' : '预览'}
+            </button>
+          )}
           <button className="btn sm danger" onClick={onDelete}><Icon name="trash" size={13} /> 删除</button>
         </div>
       </div>
@@ -507,9 +514,20 @@ function ItemEditor({ item, draft, setDraft, saving, onSave, onDelete, onCompile
       <input className="proj-item-title" value={draft?.title ?? ''}
         placeholder="标题" onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} />
 
-      <textarea className="proj-item-content" value={draft?.content ?? ''}
-        placeholder={isLatex ? 'LaTeX 源码…' : '内容（支持 Markdown）…'}
-        onChange={e => setDraft(d => ({ ...d, content: e.target.value }))} />
+      {preview ? (
+        <div className="proj-item-content md-preview">
+          {draft?.content ? <MarkdownView text={draft.content} /> : <span className="muted">暂无内容</span>}
+        </div>
+      ) : (
+        <textarea className="proj-item-content" value={draft?.content ?? ''}
+          placeholder={isLatex ? 'LaTeX 源码…' : '内容（支持 Markdown 与 $LaTeX$ 公式）…'}
+          onChange={e => setDraft(d => ({ ...d, content: e.target.value }))} />
+      )}
+      {!isLatex && !preview && (
+        <div className="muted" style={{ fontSize: 12.5 }}>
+          支持 Markdown（标题/列表/代码/表格）与 LaTeX 公式：行内 $E=mc^2$，块级 $$\int x dx$$；[[论文标题]] 可跳转文献。
+        </div>
+      )}
 
       {isLatex && st.status === 'error' && <pre className="latex-err">{st.error}</pre>}
       {isLatex && !item.archive && (
