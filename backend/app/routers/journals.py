@@ -109,7 +109,8 @@ def list_items(hide_dismissed: bool = True, min_score: float | None = None):
         conds.append(f"(f.relevance IS NULL OR f.relevance >= {float(min_score)})")
     if conds:
         sql += " WHERE " + " AND ".join(conds)
-    sql += " ORDER BY (f.published IS NULL), f.published DESC, f.id DESC LIMIT 200"
+    # 已打分的按分数从高到低排前；未打分的按日期排后（等待补分）
+    sql += " ORDER BY (f.relevance IS NULL) ASC, f.relevance DESC, f.published DESC, f.id DESC LIMIT 200"
     rows = conn.execute(sql).fetchall()
     items = []
     for r in rows:
