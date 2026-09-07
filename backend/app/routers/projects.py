@@ -577,6 +577,7 @@ class AIFixBody(BaseModel):
     source: str
     selection: str | None = None    # 选中片段（编辑器高亮部分）；None 则整篇处理
     instruction: str | None = None  # 用户附加要求，如「把这段改成表格」「润色语言」
+    history: list = []              # 多轮对话 [{role, content}]，content 为 AI 返回的源码或用户指令
 
 
 # ---------- 项目 AI 助手 ----------
@@ -621,8 +622,13 @@ def ai_fix_latex(project_id: int, item_id: int, body: AIFixBody):
         f"{extra}\n\n{scope}：\n```latex\n{target}\n```\n\n"
         '只输出修正后的完整片段源码（LaTeX），不要解释、不要代码围栏。'
     )
+    # 多轮：把此前的指令/结果作为上下文带上，让「再改一点」这类追加指令有据可依
+    history = [m for m in (body.history or [])[-6:]
+               if isinstance(m, dict) and m.get("role") in ("user", "assistant") and m.get("content")]
+    messages = [{"role": m["role"], "content": str(m["content"])[:8000]} for m in history]
+    messages.append({"role": "user", "content": prompt})
     try:
-        fixed = ai_client.chat([{"role": "user", "content": prompt}], temperature=0.2)
+        fixed = ai_client.chat(messages, temperature=0.2)
     except ai_client.AINotConfigured as e:
         raise HTTPException(400, str(e))
     except ai_client.AICallError as e:
@@ -634,6 +640,49 @@ def ai_fix_latex(project_id: int, item_id: int, body: AIFixBody):
     result = body.source.replace(target, fixed, 1) if body.selection else fixed
     tasks.log_chat(f"project:{project_id}", f"[AI 修正 LaTeX] {body.instruction or '(默认修正)'}", fixed[:6000])
     return {"fixed": result, "changed": result != body.source}
+
+
+@router.get("/{project_id}/items/{item_id}/files")
+def latex_files(project_id: int, item_id: int):
+    """LaTeX 条目的源文件清单（拖入压缩包的项目），按相对路径列出。"""
+    conn = get_db()
+    _get_project(conn, project_id)
+    r = conn.execute(
+        "SELECT id FROM project_items WHERE id=? AND project_id=? AND item_type='latex'",
+        (item_id, project_id),
+    ).fetchone()
+    if r is None:
+        raise HTTPException(404, "LaTeX 文档不存在")
+    src_dir = LATEX_DIR / "archives" / f"item_{item_id}"
+    files = []
+    if src_dir.exists():
+        for p in sorted(src_dir.rglob("*")):
+            if p.is_file() and not p.name.startswith("."):
+                files.append({
+                    "path": str(p.relative_to(src_dir)),
+                    "size": p.stat().st_size,
+                    "is_tex": p.suffix.lower() == ".tex",
+                })
+    return {"files": files, "main_tex": (_find_main_tex(src_dir).relative_to(src_dir).as_posix()
+                                         if files and _find_main_tex(src_dir) else None)}
+
+
+@router.get("/{project_id}/items/{item_id}/file")
+def latex_file(project_id: int, item_id: int, path: str):
+    """读取压缩包项目内单个源文件（图片/tex 等文本与资源）。"""
+    conn = get_db()
+    _get_project(conn, project_id)
+    r = conn.execute(
+        "SELECT id FROM project_items WHERE id=? AND project_id=? AND item_type='latex'",
+        (item_id, project_id),
+    ).fetchone()
+    if r is None:
+        raise HTTPException(404, "LaTeX 文档不存在")
+    src_dir = (LATEX_DIR / "archives" / f"item_{item_id}").resolve()
+    target = (src_dir / path).resolve()
+    if not str(target).startswith(str(src_dir)) or not target.is_file():
+        raise HTTPException(404, "文件不存在")
+    return FileResponse(target, filename=target.name)
 
 
 @router.post("/{project_id}/ai_ask")

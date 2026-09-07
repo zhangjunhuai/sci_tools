@@ -262,7 +262,11 @@ export default function ProjectDetail() {
               {!collapsed.has(g.key) && treeItemsFor(g).map(it => (
                 <div key={it.id}
                   className={`ptree-item ${sel.kind === it.kind && sel.id === it.id ? 'active' : ''}`}
-                  onClick={() => setSel({ kind: it.kind, id: it.id })}
+                  onClick={() => {
+                    // LaTeX 文档进入全屏工作台，其余条目内联编辑
+                    if (it.kind === 'latex') nav(`/projects/${id}/latex/${it.id}`)
+                    else setSel({ kind: it.kind, id: it.id })
+                  }}
                   title={it.title}>
                   <span className="ptree-icon"><Icon name={it.icon} size={13} /></span>
                   <span className="ptree-label">{it.title}</span>

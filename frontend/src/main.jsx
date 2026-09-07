@@ -9,6 +9,7 @@ import Settings from './pages/Settings'
 import Graph from './pages/Graph'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
+import LatexWorkbench from './pages/LatexWorkbench'
 import 'katex/dist/katex.min.css'
 import './styles.css'
 
@@ -26,6 +27,7 @@ const router = createHashRouter([
       { path: 'graph', element: <Graph /> },
       { path: 'projects', element: <Projects /> },
       { path: 'projects/:id', element: <ProjectDetail /> },
+      { path: 'projects/:pid/latex/:iid', element: <LatexWorkbench /> },
       { path: 'settings', element: <Settings /> },
     ],
   },
