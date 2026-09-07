@@ -477,10 +477,6 @@ def compile_latex(project_id: int, item_id: int):
                     raise HTTPException(400, "编译失败：\n" + (_log_errors(log) or (proc.stderr or "")[-800:]))
                 out = _latex_pdf_path(item_id)
                 shutil.copyfile(pdf, out)
-        if not pdf.exists():
-            raise HTTPException(400, "编译失败：\n" + (_log_errors(log) or (proc.stderr or "")[-800:]))
-        out = _latex_pdf_path(item_id)
-        shutil.copyfile(pdf, out)
     except subprocess.TimeoutExpired:
         raise HTTPException(400, "编译超时（超过 3 分钟），请检查文档是否有死循环命令")
     except HTTPException:
