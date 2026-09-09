@@ -18,12 +18,30 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== 'kw-translate' || !tab?.id) return
   const text = (info.selectionText || '').trim()
   if (!text) return
-  // 右键路径没有 content script 传来的坐标，用视口中心兜底
+  // content script 可能未注入（扩展安装后未刷新的旧标签页）：先补注入
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: 'kw-ping' })
+  } catch {
+    try {
+      await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['content.css'] })
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] })
+    } catch (e) {
+      // 注入也失败（如 chrome:// 页）：退化为复制译文到剪贴板
+      const r = await translate(text)
+      if (r.text) {
+        // 剪贴板要在页面上下文写；后台不能直接写，提示用户
+        chrome.action.setBadgeText({ text: '!' })
+        chrome.action.setTitle({ title: `翻译失败：${r.error || '该页面无法注入脚本'}` })
+      }
+      return
+    }
+  }
+  // 右键路径没有坐标，用视口中心兜底
   const x = Math.round((tab.width || 800) / 2)
   const y = Math.round((tab.height || 600) / 2)
   chrome.tabs.sendMessage(tab.id, { type: 'kw-show-translation', x, y, text: '翻译中…' })
   const r = await translate(text)
-  chrome.tabs.sendMessage(tab.id, { type: 'kw-show-translation', x, y, ...r })
+  chrome.tabs.sendMessage(tab.id, { type: 'kw-show-translation', x, y, ...r }).catch(() => {})
 })
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

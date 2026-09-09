@@ -48,7 +48,8 @@ function hideBubble() {
   bubbleEl = null
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === 'kw-ping') { sendResponse({ ok: true }); return }
   if (msg.type === 'kw-show-translation') {
     const { x, y, text, error } = msg
     showBubble(x, y, error ? `翻译失败：${error}` : text, false)
