@@ -1,5 +1,5 @@
 .kw-translate-bubble {
-  position: absolute;
+  position: fixed;   /* 视口坐标锚定选区，不随页面滚动/绝对定位干扰 */
   z-index: 2147483647;
   max-width: 420px;
   min-width: 180px;
@@ -33,7 +33,7 @@
 .kw-bubble-body { white-space: pre-wrap; word-break: break-word; font-size: 13.5px; }
 
 .kw-translate-btn {
-  position: absolute;
+  position: fixed;
   z-index: 2147483647;
   width: 26px;
   height: 26px;

@@ -1,9 +1,11 @@
 // 选词捕获 + 翻译气泡（内容脚本）
+// 定位策略：气泡用 position:fixed，锚定「当前选区」的视口坐标——不受页面滚动/绝对定位干扰。
 
-// —— 翻译气泡：接收 background 的结果并展示 ——
 let bubbleEl = null
+let lastSelRect = null // 选区的视口坐标 {left, right, top, bottom}
+let lastSelection = ''
 
-function showBubble(x, y, text, loading = false) {
+function showBubble(text, loading = false) {
   hideBubble()
   bubbleEl = document.createElement('div')
   bubbleEl.className = 'kw-translate-bubble'
@@ -34,13 +36,20 @@ function showBubble(x, y, text, loading = false) {
   bubbleEl.append(head, body)
   document.documentElement.appendChild(bubbleEl)
 
-  // 位置：贴着鼠标，超出视口就往回收
-  const pad = 12
+  // 锚点：选区右下角（视口坐标）；没有选区信息时用视口中心
+  const pad = 10
+  const vw = window.innerWidth
+  const vh = window.innerHeight
   const rect = bubbleEl.getBoundingClientRect()
-  let left = Math.min(x + pad, window.innerWidth - rect.width - 8)
-  let top = Math.min(y + pad, window.innerHeight - rect.height - 8)
-  bubbleEl.style.left = `${Math.max(8, left)}px`
-  bubbleEl.style.top = `${Math.max(8, top)}px`
+  const anchor = lastSelRect || { right: vw / 2, bottom: vh / 2 }
+  let left = anchor.right + pad
+  let top = anchor.bottom + pad
+  // 超出视口就翻转/收拢：右侧放不下放选区左侧，下方放不下放上方
+  if (left + rect.width > vw - 8) left = Math.max(8, anchor.left - rect.width - pad)
+  if (left + rect.width > vw - 8) left = Math.max(8, vw - rect.width - 8)
+  if (top + rect.height > vh - 8) top = Math.max(8, anchor.top - rect.height - pad)
+  bubbleEl.style.left = `${left}px`
+  bubbleEl.style.top = `${top}px`
 }
 
 function hideBubble() {
@@ -51,51 +60,61 @@ function hideBubble() {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'kw-ping') { sendResponse({ ok: true }); return }
   if (msg.type === 'kw-show-translation') {
-    const { x, y, text, error } = msg
-    showBubble(x, y, error ? `翻译失败：${error}` : text, false)
+    // 坐标由本脚本自己维护的选区决定，忽略 background 传来的 x/y
+    showBubble(msg.error ? `翻译失败：${msg.error}` : msg.text, false)
   }
 })
 
-// —— 划词：mouseup 采集选区，选区旁显示「译」浮动按钮 ——
+// —— 划词：mouseup 采集选区与视口坐标，选区旁显示「译」浮动按钮 ——
+
 let btnEl = null
-let lastSelection = ''
 
 function hideButton() {
   btnEl?.remove()
   btnEl = null
 }
 
+function captureSelection() {
+  const sel = window.getSelection()
+  const text = sel ? sel.toString().trim() : ''
+  if (!text || text.length > 4000 || !sel.rangeCount) { lastSelRect = null; lastSelection = ''; return }
+  const rect = sel.getRangeAt(0).getBoundingClientRect()
+  if (!rect.width && !rect.height) { lastSelRect = null; return }
+  lastSelRect = { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+  lastSelection = text
+}
+
 document.addEventListener('mouseup', (e) => {
-  // 点在自己的 UI 上不处理
   if (e.target.closest?.('.kw-translate-bubble, .kw-translate-btn')) return
   setTimeout(() => {
-    const sel = window.getSelection()
-    const text = sel ? sel.toString().trim() : ''
+    captureSelection()
     hideButton()
-    if (!text || text.length < 1 || text.length > 4000) return
-    const range = sel.getRangeAt(0)
-    const rect = range.getBoundingClientRect()
-    if (!rect.width && !rect.height) return
-    lastSelection = text
+    if (!lastSelection) return
+    const rect = lastSelRect
     btnEl = document.createElement('div')
     btnEl.className = 'kw-translate-btn'
     btnEl.textContent = '译'
     btnEl.title = 'AI 翻译（也可右键 → 科研划词翻译）'
-    btnEl.style.left = `${Math.min(window.innerWidth - 40, rect.right + window.scrollX + 6)}px`
-    btnEl.style.top = `${Math.max(window.scrollY + rect.top - 34, window.scrollY + 4)}px`
+    // 「译」按钮也用 fixed，贴选区右上角外侧
+    btnEl.style.left = `${Math.min(window.innerWidth - 36, rect.right + 6)}px`
+    btnEl.style.top = `${Math.max(4, rect.top - 32)}px`
     btnEl.onclick = (ev) => {
       ev.stopPropagation()
-      const bx = rect.right + window.scrollX
-      const by = rect.bottom + window.scrollY
-      showBubble(bx, by, '', true)
-      chrome.runtime.sendMessage({ type: 'kw-translate', text: lastSelection, x: bx, y: by })
+      showBubble('', true)
+      chrome.runtime.sendMessage({ type: 'kw-translate', text: lastSelection })
       hideButton()
     }
     document.documentElement.appendChild(btnEl)
   }, 10)
 })
 
-// ESC 或点击别处收起
+// 右键菜单路径：右键时选区仍在，更新一次锚点
+document.addEventListener('contextmenu', () => {
+  setTimeout(captureSelection, 0)
+})
+
+// ESC 或滚动时收起气泡（fixed 定位不随页面滚动，滚走了就该关掉）
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { hideBubble(); hideButton() }
 })
+window.addEventListener('scroll', hideBubble, { passive: true })
