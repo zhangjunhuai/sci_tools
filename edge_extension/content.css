@@ -1,0 +1,49 @@
+.kw-translate-bubble {
+  position: absolute;
+  z-index: 2147483647;
+  max-width: 420px;
+  min-width: 180px;
+  background: #ffffff;
+  color: #1a1f27;
+  border: 1px solid #e3e6ea;
+  border-radius: 10px;
+  box-shadow: 0 6px 24px rgba(30, 40, 60, 0.18);
+  font: 13.5px/1.65 -apple-system, 'PingFang SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  padding: 8px 10px;
+}
+.kw-bubble-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #5c6673;
+  margin-bottom: 4px;
+}
+.kw-bubble-head span:first-child { font-weight: 600; flex: 1; }
+.kw-bubble-copy {
+  border: none;
+  background: none;
+  color: #2563eb;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+.kw-bubble-close { cursor: pointer; opacity: 0.6; padding: 0 2px; }
+.kw-bubble-close:hover { opacity: 1; }
+.kw-bubble-body { white-space: pre-wrap; word-break: break-word; font-size: 13.5px; }
+
+.kw-translate-btn {
+  position: absolute;
+  z-index: 2147483647;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+  font: 600 13px/26px -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(37, 99, 235, 0.4);
+  user-select: none;
+}
+.kw-translate-btn:hover { background: #1d4ed8; }

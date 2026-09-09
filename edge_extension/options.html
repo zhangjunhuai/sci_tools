@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font: 14px/1.6 -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; width: 340px; margin: 0; padding: 14px 16px; }
+    h2 { font-size: 15px; margin: 0 0 10px; }
+    label { display: block; font-size: 12.5px; color: #5c6673; margin: 10px 0 4px; }
+    input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #d6dae0; border-radius: 6px; font-size: 13px; }
+    .hint { font-size: 12px; color: #8a93a0; margin-top: 6px; }
+    button { margin-top: 12px; padding: 6px 16px; border: none; border-radius: 6px; background: #2563eb; color: #fff; cursor: pointer; }
+    button:disabled { opacity: 0.5; }
+    #msg { margin-left: 8px; font-size: 12.5px; color: #16a34a; }
+  </style>
+</head>
+<body>
+  <h2>科研划词翻译 · 设置</h2>
+  <label for="apiBase">文献库后端地址</label>
+  <input id="apiBase" placeholder="http://127.0.0.1:8210" />
+  <div class="hint">翻译走本地「科研文献中心」的 AI 接口（/api/ai/translate），API Key 在文献库「设置」页配置即可，插件不需要存密钥。</div>
+  <button id="save">保存</button><span id="msg"></span>
+  <script src="options.js"></script>
+</body>
+</html>

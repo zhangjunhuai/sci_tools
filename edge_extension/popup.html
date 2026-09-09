@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body { font: 13.5px/1.6 -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif; width: 260px; margin: 0; padding: 12px 14px; }
+    h2 { font-size: 14px; margin: 0 0 8px; }
+    ol { margin: 6px 0; padding-left: 20px; color: #5c6673; font-size: 12.5px; }
+    a { color: #2563eb; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h2>科研划词翻译</h2>
+  <ol>
+    <li>网页里<strong>选中文字</strong>，点旁边的蓝色「译」</li>
+    <li>或<strong>右键</strong> → 科研划词翻译</li>
+    <li>后端地址不对时到 <a href="#" id="openOptions">设置</a> 里改</li>
+  </ol>
+  <script>
+    document.getElementById('openOptions').onclick = (e) => {
+      e.preventDefault()
+      chrome.runtime.openOptionsPage()
+    }
+  </script>
+</body>
+</html>
